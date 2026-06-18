@@ -6,6 +6,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
 
 const app = express();
 
@@ -27,7 +32,21 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
-app.use(express.json());
+
+// SECURITY MIDDLEWARE
+app.use(helmet()); // Set security HTTP headers
+app.use(mongoSanitize()); // Data sanitization against NoSQL query injection
+app.use(xss()); // Data sanitization against XSS
+app.use(hpp()); // Prevent parameter pollution
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 300, // limit each IP to 300 requests per window
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api', limiter);
+
+app.use(express.json({ limit: '10kb' })); // Body parser with size limit
 app.use(cookieParser());
 
 // Expose io to routes

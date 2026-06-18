@@ -4,9 +4,29 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { authenticate, authorize } = require('../middleware/auth');
+const rateLimit = require('express-rate-limit');
+const { body, validationResult } = require('express-validator');
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 10, // 10 attempts per IP
+  message: { message: 'Too many attempts from this IP, please try again after 15 minutes' }
+});
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: 'Validation error', errors: errors.array() });
+  }
+  next();
+};
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, [
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('password').notEmpty().withMessage('Password is required'),
+  validate
+], async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
@@ -80,8 +100,11 @@ router.post('/refresh', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/auth/verify-pin (Rate limited to 5 attempts per 10 mins)
-router.post('/verify-pin', authenticate, async (req, res) => {
+// POST /api/auth/verify-pin (Rate limited to 10 attempts per 15 mins)
+router.post('/verify-pin', authenticate, authLimiter, [
+  body('pin').isString().isLength({ min: 4, max: 6 }).withMessage('PIN must be 4-6 digits'),
+  validate
+], async (req, res) => {
   try {
     const { pin } = req.body;
     

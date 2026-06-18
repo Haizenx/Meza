@@ -5,11 +5,28 @@ const Order = require('../models/Order');
 const MenuItem = require('../models/MenuItem');
 const Recipe = require('../models/Recipe');
 const Ingredient = require('../models/Ingredient');
+const Shift = require('../models/Shift');
 const { authenticate, authorize } = require('../middleware/auth');
+const { body, validationResult } = require('express-validator');
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: 'Validation Error', errors: errors.array() });
+  next();
+};
 
 // POST /api/orders
 // Create an order with idempotency, server-side calculation, and atomic inventory deduction
-router.post('/', authenticate, async (req, res) => {
+router.post('/', authenticate, [
+  body('localUUID').isString().notEmpty().withMessage('localUUID is required'),
+  body('items').isArray({ min: 1 }).withMessage('Order must contain items'),
+  body('items.*.menuItemId').isMongoId().withMessage('Valid menuItemId is required'),
+  body('items.*.quantity').isInt({ gt: 0 }).withMessage('Quantity must be greater than 0'),
+  body('paymentMethod').isIn(['cash', 'gcash', 'card', 'online']).withMessage('Invalid payment method'),
+  body('cashTendered').optional().isNumeric(),
+  body('shiftId').optional().isMongoId(),
+  validate
+], async (req, res) => {
   try {
     const { localUUID, items, paymentMethod, cashTendered, shiftId } = req.body;
 
