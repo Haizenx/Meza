@@ -487,6 +487,12 @@ export default function CashierMode() {
     return sum + ((item.price + itemModSum) * item.quantity);
   }, 0);
   const total = Math.max(0, subtotal - discountAmount);
+
+  // Calculate Quick Cash Options
+  const nearest100 = Math.ceil(total / 100) * 100;
+  const nearest500 = Math.ceil(total / 500) * 500;
+  const nearest1000 = Math.ceil(total / 1000) * 1000;
+  const quickCashOptions = Array.from(new Set([nearest100, nearest500, nearest1000])).filter(v => v > total);
   
   let changeDue = 0;
   if (paymentMethod === 'cash' && cashTendered >= total) {
@@ -943,19 +949,13 @@ export default function CashierMode() {
                 <button onClick={() => setPaymentMethod('split')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'split' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><span className="font-bold text-xs">Split</span></button>
               </div>
 
-              {paymentMethod === 'cash' && (() => {
-                const nearest100 = Math.ceil(total / 100) * 100;
-                const nearest500 = Math.ceil(total / 500) * 500;
-                const nearest1000 = Math.ceil(total / 1000) * 1000;
-                const options = Array.from(new Set([nearest100, nearest500, nearest1000])).filter(v => v > total);
-                
-                return (
+              {paymentMethod === 'cash' && (
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
                     <div className="flex justify-between items-center mb-2">
                       <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
                       <div className="flex space-x-1">
                         <button onClick={()=>setCashTendered(total.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">Exact</button>
-                        {options.map(opt => (
+                        {quickCashOptions.map(opt => (
                           <button key={opt} onClick={()=>setCashTendered(opt.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱{opt}</button>
                         ))}
                       </div>
@@ -966,8 +966,7 @@ export default function CashierMode() {
                       <span className={changeDue > 0 ? 'text-green-600' : 'text-gray-400'}>₱{changeDue.toFixed(2)}</span>
                     </div>
                   </div>
-                );
-              })()}
+              )}
 
               {paymentMethod === 'split' && (
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6 space-y-3">
