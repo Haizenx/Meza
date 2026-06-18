@@ -76,7 +76,10 @@ export default function CashierMode() {
     });
 
     newSocket.on('menu:updated', () => fetchMenu());
-    newSocket.on('inventory:low_stock', (data) => console.warn('Low stock alert:', data));
+    newSocket.on('inventory:low_stock', (data) => {
+      showToast(`Warning: ${data.name} is critically low!`, 'warning');
+      fetchMenu();
+    });
     
     newSocket.on('kds:new_order', () => { fetchKitchenOrders(); fetchUnpaidOrders(); });
     newSocket.on('kds:update_status', (order) => {
@@ -268,6 +271,19 @@ export default function CashierMode() {
     setRightPanelTab('order');
   };
 
+  const toggleAvailability = async (id) => {
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/menu/${id}/toggle-availability`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      // socket broadcast menu:updated will trigger fetchMenu()
+    } catch(e) {
+      console.error(e);
+      showToast('Failed to update availability', 'error');
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || isStartingShift || isEndingShift || pinModal.isOpen) return;
@@ -362,7 +378,16 @@ export default function CashierMode() {
 
   // --- CART LOGIC ---
   const addToCart = (item, e) => {
-    if (!item.isAvailable) return;
+    if (!item.isAvailable || item.calculatedStock === 0) return;
+
+    const existing = cart.find(c => c._id === item._id);
+    const currentQty = existing ? existing.quantity : 0;
+    
+    // Smart Stock Validation
+    if (item.calculatedStock !== null && item.calculatedStock !== undefined && currentQty >= item.calculatedStock) {
+      showToast(`Cannot add more. Only ${item.calculatedStock} in stock!`, 'warning');
+      return;
+    }
 
     if (e) {
       const rect = e.currentTarget.getBoundingClientRect();
@@ -374,7 +399,6 @@ export default function CashierMode() {
     setCartPulse(true);
     setTimeout(() => setCartPulse(false), 300);
 
-    const existing = cart.find(c => c._id === item._id);
     if (existing) {
       setCart(cart.map(c => c._id === item._id ? { ...c, quantity: c.quantity + 1 } : c));
     } else {
@@ -549,17 +573,41 @@ export default function CashierMode() {
         {/* Menu Grid */}
         <main className="flex-1 overflow-y-auto p-6">
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredMenu.map(item => (
-              <div key={item._id} onClick={(e) => addToCart(item, e)} className={`bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${!item.isAvailable ? 'opacity-40 grayscale pointer-events-none border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
+            {filteredMenu.map(item => {
+              const isDisabled = !item.isAvailable || item.calculatedStock === 0;
+              return (
+              <div key={item._id} onClick={(e) => addToCart(item, e)} className={`relative bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${isDisabled ? 'opacity-50 grayscale border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
+                
+                {/* Stock Counter Badge */}
+                {item.calculatedStock !== null && item.calculatedStock !== undefined && (
+                  <div className={`absolute top-3 right-3 text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm ${item.calculatedStock <= 5 ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    {item.calculatedStock} left
+                  </div>
+                )}
+
                 <div className="flex justify-between items-start">
                   <div className="p-2.5 rounded-lg bg-gray-50 text-meza-primary">
                     {item.category === 'Drinks' ? <Coffee className="w-6 h-6"/> : item.category === 'Food' ? <UtensilsCrossed className="w-6 h-6"/> : <Croissant className="w-6 h-6"/>}
                   </div>
-                  <span className="text-lg font-black text-meza-text tracking-tight">₱{item.price}</span>
                 </div>
-                <div className="mt-4"><h3 className="font-bold text-meza-text leading-tight">{item.name}</h3></div>
+                
+                <div className="mt-4 flex flex-col">
+                  <h3 className="font-black text-meza-text text-sm leading-tight mb-1 truncate">{item.name}</h3>
+                  <div className="flex justify-between items-end">
+                    <span className="text-meza-primary font-bold text-sm">₱{item.price.toFixed(2)}</span>
+                    
+                    {/* The "86" Button */}
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }} 
+                      className={`text-[9px] uppercase font-bold border px-1.5 py-0.5 rounded transition-colors ${item.isAvailable ? 'text-red-500 border-red-200 bg-white hover:bg-red-50' : 'text-green-600 border-green-200 bg-white hover:bg-green-50'}`}
+                    >
+                      {item.isAvailable ? '86 (Out)' : 'Restock'}
+                    </button>
+                  </div>
+                </div>
+                {isDisabled && <div className="absolute inset-0 z-10" />} {/* Block clicks if disabled except on the 86 button which intercepts via stopPropagation */}
               </div>
-            ))}
+            )})}
           </div>
         </main>
       </div>
