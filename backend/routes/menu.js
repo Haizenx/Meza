@@ -119,6 +119,7 @@ router.get('/:id/cost', authenticate, authorize('owner', 'manager'), async (req,
           cogs += costContribution;
           
           ingredientsBreakdown.push({
+            ingredientId: ri.ingredientId._id,
             name: ri.ingredientId.name,
             quantity: ri.quantity,
             unit: ri.unit,

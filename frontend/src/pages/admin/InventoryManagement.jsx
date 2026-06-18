@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PackageCheck, AlertTriangle, Search, ArrowUp, ArrowDown, X, Coffee, Layers, Tag, Beaker } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import MenuItemModal from '../../components/admin/MenuItemModal';
 
 export default function InventoryManagement() {
   const { token } = useAuth();
@@ -15,6 +16,7 @@ export default function InventoryManagement() {
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
+  const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
 
   const [currentItem, setCurrentItem] = useState(null);
   const [recipeData, setRecipeData] = useState(null);
@@ -67,6 +69,7 @@ export default function InventoryManagement() {
     setIsDeliveryModalOpen(false);
     setIsCreateModalOpen(false);
     setIsRecipeModalOpen(false);
+    setIsMenuModalOpen(false);
     setCurrentItem(null);
     setRecipeData(null);
   };
@@ -588,10 +591,15 @@ export default function InventoryManagement() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
-                      <Beaker className="w-3.5 h-3.5" />
-                      <span>Ingredients Breakdown</span>
-                    </h4>
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center space-x-1.5">
+                        <Beaker className="w-3.5 h-3.5" />
+                        <span>Ingredients Breakdown</span>
+                      </h4>
+                      <button onClick={() => setIsMenuModalOpen(true)} className="text-xs font-bold text-meza-primary hover:text-meza-primary-hover transition-colors">
+                        Edit Recipe
+                      </button>
+                    </div>
                     {recipeData.ingredientsBreakdown && recipeData.ingredientsBreakdown.length > 0 ? (
                       <div className="border border-gray-100 rounded-xl overflow-hidden">
                         <table className="w-full text-xs">
@@ -631,6 +639,18 @@ export default function InventoryManagement() {
           </div>
         </div>
       )}
+
+      <MenuItemModal 
+        isOpen={isMenuModalOpen} 
+        onClose={() => {
+          setIsMenuModalOpen(false);
+          if (currentItem) openRecipeCosting(currentItem); // refresh recipe data
+        }} 
+        initialData={currentItem}
+        rawIngredients={ingredients}
+        token={token}
+        onSuccess={fetchData}
+      />
     </div>
   );
 }

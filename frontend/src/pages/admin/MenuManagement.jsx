@@ -1,17 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Archive, CheckCircle, XCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import MenuItemModal from '../../components/admin/MenuItemModal';
 
 export default function MenuManagement() {
   const { token } = useAuth();
   const [items, setItems] = useState([]);
+  const [rawIngredients, setRawIngredients] = useState([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
 
   const fetchMenu = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, {
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())
       .then(setItems)
+      .catch(console.error);
+      
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(setRawIngredients)
       .catch(console.error);
   };
 
@@ -35,30 +46,14 @@ export default function MenuManagement() {
     }
   };
 
-  const handleAddItem = async () => {
-    const name = prompt("Enter item name:");
-    if (!name) return;
-    const category = prompt("Enter category (Drinks, Food, Pastries):", "Drinks");
-    const photoUrl = prompt("Enter Cloudinary photo URL:");
-    const priceStr = prompt("Enter price:");
-    const price = parseFloat(priceStr);
-    const isAvailable = true;
-    
-    if (!name || !category || isNaN(price)) return alert("Invalid details.");
+  const handleAddItem = () => {
+    setEditingItem(null);
+    setIsModalOpen(true);
+  };
 
-    try {
-      await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, category, price, photoUrl, isAvailable })
-      });
-      fetchMenu();
-    } catch (err) {
-      console.error(err);
-    }
+  const handleEditItem = (item) => {
+    setEditingItem(item);
+    setIsModalOpen(true);
   };
 
   return (
@@ -107,7 +102,7 @@ export default function MenuManagement() {
                   </button>
                 </td>
                 <td className="px-6 py-4 text-right space-x-1">
-                  <button className="p-1.5 text-gray-400 hover:text-meza-primary hover:bg-meza-primary/5 rounded-md transition-colors cursor-pointer">
+                  <button onClick={() => handleEditItem(item)} className="p-1.5 text-gray-400 hover:text-meza-primary hover:bg-meza-primary/5 rounded-md transition-colors cursor-pointer">
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer">
@@ -126,6 +121,15 @@ export default function MenuManagement() {
           </tbody>
         </table>
       </div>
+
+      <MenuItemModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        initialData={editingItem}
+        rawIngredients={rawIngredients}
+        token={token}
+        onSuccess={fetchMenu}
+      />
     </div>
   );
 }
