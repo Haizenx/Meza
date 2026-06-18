@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { ChefHat, Check, Clock, AlertCircle } from 'lucide-react';
+import { ChefHat, Check, Clock, AlertCircle, GripVertical, UtensilsCrossed } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNavigate } from 'react-router-dom';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 export default function KitchenDisplay() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const socket = useSocket();
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
+  const [columns, setColumns] = useState({
+    pending: { id: 'pending', title: 'Pending', icon: AlertCircle, color: 'border-yellow-500/50', bg: 'bg-yellow-500/10' },
+    preparing: { id: 'preparing', title: 'Preparing', icon: ChefHat, color: 'border-blue-500/50', bg: 'bg-blue-500/10' },
+    ready: { id: 'ready', title: 'Ready to Serve', icon: Check, color: 'border-green-500/50', bg: 'bg-green-500/10' }
+  });
 
   const fetchOrders = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/kds/active`, {
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/kds/active`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -29,12 +35,10 @@ export default function KitchenDisplay() {
     if (!socket) return;
     
     const handleNewOrder = (order) => {
-      // Audio cue
       try {
-        const audio = new Audio('/bell.mp3'); // Assuming standard notification sound exists
+        const audio = new Audio('/bell.mp3');
         audio.play().catch(e=>console.log(e));
       } catch(e){}
-      
       setOrders(prev => [...prev, order].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)));
     };
 
@@ -44,7 +48,7 @@ export default function KitchenDisplay() {
         if (['pending', 'preparing', 'ready'].includes(updatedOrder.fulfillmentStatus)) {
           return [...filtered, updatedOrder].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
         }
-        return filtered; // If served, remove from KDS
+        return filtered;
       });
     };
 
@@ -59,7 +63,10 @@ export default function KitchenDisplay() {
 
   const updateStatus = async (orderId, newStatus) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/orders/${orderId}/kds`, {
+      // Optimistic update
+      setOrders(prev => prev.map(o => o._id === orderId ? { ...o, fulfillmentStatus: newStatus } : o));
+      
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/${orderId}/kds`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -67,207 +74,188 @@ export default function KitchenDisplay() {
         },
         body: JSON.stringify({ fulfillmentStatus: newStatus })
       });
-      if (res.ok) {
-        // Optimistic UI update handled by socket broadcast
+      if (!res.ok) {
+        // Revert if failed
+        fetchOrders();
       }
     } catch (err) {
       console.error(err);
+      fetchOrders();
     }
   };
 
-  // Group orders by status
-  const pending = orders.filter(o => o.fulfillmentStatus === 'pending');
-  const preparing = orders.filter(o => o.fulfillmentStatus === 'preparing');
-  const ready = orders.filter(o => o.fulfillmentStatus === 'ready');
+  const onDragEnd = (result) => {
+    const { destination, source, draggableId } = result;
+
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+
+    updateStatus(draggableId, destination.droppableId);
+  };
 
   const getTimeElapsed = (createdAt) => {
     const diff = Math.floor((new Date() - new Date(createdAt)) / 60000);
     return diff;
   };
 
-  const OrderCard = ({ order, currentStatus }) => {
+  // Group orders
+  const groupedOrders = {
+    pending: orders.filter(o => o.fulfillmentStatus === 'pending'),
+    preparing: orders.filter(o => o.fulfillmentStatus === 'preparing'),
+    ready: orders.filter(o => o.fulfillmentStatus === 'ready')
+  };
+
+  const OrderCard = ({ order, index }) => {
     const elapsed = getTimeElapsed(order.createdAt);
-    const isOverdue = elapsed > 10; // >10 mins is overdue
-
+    const isOverdue = elapsed > 10;
+    
     return (
-      <div 
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData('orderId', order._id);
-          e.dataTransfer.effectAllowed = 'move';
-        }}
-        className={`bg-white rounded-xl shadow-md border-t-4 overflow-hidden flex flex-col h-full cursor-grab active:cursor-grabbing transition-transform hover:-translate-y-1 ${isOverdue ? 'border-red-500' : 'border-meza-primary'}`}
-      >
-        <div className="p-3 bg-gray-50 flex justify-between items-center border-b border-gray-100">
-          <div className="flex items-center space-x-2">
-            <span className="font-black text-gray-800 text-lg">#{order._id.slice(-4).toUpperCase()}</span>
-            {order.tableNumber && (
-              <span className="bg-meza-text text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-                Table {order.tableNumber}
-              </span>
-            )}
-            {order.customerName && (
-              <span className="bg-meza-primary text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-                {order.customerName}
-              </span>
-            )}
-          </div>
-          <div className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-bold ${isOverdue ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-gray-200 text-gray-600'}`}>
-            <Clock className="w-3 h-3" />
-            <span>{elapsed}m</span>
-          </div>
-        </div>
-        
-        <div className="p-4 flex-1">
-          <ul className="space-y-3">
-            {order.items.map((item, idx) => (
-              <li key={idx} className="flex items-start space-x-3">
-                <span className="font-black text-meza-primary text-lg w-6 text-right">{item.quantity}x</span>
-                <div className="flex flex-col">
-                  <span className="font-bold text-gray-800 text-lg leading-tight">{item.nameAtSale}</span>
-                  {item.modifiers && item.modifiers.length > 0 && (
-                    <div className="text-sm text-gray-600 font-bold mt-0.5 leading-tight">
-                      {item.modifiers.map(m => `+ ${m.name}`).join(', ')}
+      <Draggable draggableId={order._id} index={index}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+            className={`mb-4 bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700/50 transition-all ${snapshot.isDragging ? 'ring-2 ring-meza-primary scale-[1.02] rotate-1' : ''} ${isOverdue ? 'ring-1 ring-red-500/50' : ''}`}
+          >
+            <div className={`p-3 flex justify-between items-center border-b border-gray-700/50 ${isOverdue ? 'bg-red-500/10' : 'bg-gray-800/80'}`}>
+              <div className="flex items-center space-x-3">
+                <GripVertical className="w-5 h-5 text-gray-500 cursor-grab" />
+                <span className="font-black text-white text-lg tracking-wider">#{order._id.slice(-4).toUpperCase()}</span>
+                {order.tableNumber && (
+                  <span className="bg-meza-primary/20 text-meza-primary border border-meza-primary/30 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">
+                    Table {order.tableNumber}
+                  </span>
+                )}
+                {order.customerName && (
+                  <span className="bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">
+                    {order.customerName}
+                  </span>
+                )}
+              </div>
+              <div className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold shadow-inner ${isOverdue ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-700 text-gray-300'}`}>
+                <Clock className="w-3.5 h-3.5" />
+                <span>{elapsed}m</span>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-gray-800/50">
+              <ul className="space-y-3">
+                {order.items.map((item, idx) => (
+                  <li key={idx} className="flex items-start space-x-3 group">
+                    <span className="font-black text-meza-primary text-xl w-8 text-right bg-gray-900/50 py-1 rounded-lg border border-gray-700/50">{item.quantity}x</span>
+                    <div className="flex flex-col flex-1 pt-1">
+                      <span className="font-bold text-gray-100 text-lg leading-tight group-hover:text-white transition-colors">{item.nameAtSale}</span>
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div className="text-sm text-gray-400 font-medium mt-1 leading-tight flex flex-wrap gap-1">
+                          {item.modifiers.map((m, i) => (
+                            <span key={i} className="bg-gray-700/50 px-2 py-0.5 rounded-md border border-gray-600/50">+ {m.name}</span>
+                          ))}
+                        </div>
+                      )}
+                      {item.note && (
+                        <div className="mt-2 bg-red-900/20 border border-red-500/20 p-2 rounded-lg">
+                          <span className="text-sm font-semibold text-red-400 italic">"{item.note}"</span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {item.note && <span className="text-sm font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded mt-1 break-words">"{item.note}"</span>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-        <div className="p-3 bg-gray-50 border-t border-gray-100">
-          {currentStatus === 'pending' && (
-            <button 
-              onClick={() => updateStatus(order._id, 'preparing')}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors text-lg"
-            >
-              Start Preparing
-            </button>
-          )}
-          {currentStatus === 'preparing' && (
-            <button 
-              onClick={() => updateStatus(order._id, 'ready')}
-              className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors text-lg"
-            >
-              Mark Ready
-            </button>
-          )}
-          {currentStatus === 'ready' && (
-            <button 
-              onClick={() => updateStatus(order._id, 'served')}
-              className="w-full py-3 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-lg transition-colors text-lg"
-            >
-              Mark Served (Clear)
-            </button>
-          )}
-        </div>
-      </div>
+            {/* Quick Action Button for non-drag users */}
+            <div className="flex bg-gray-900/50 divide-x divide-gray-700/50 border-t border-gray-700/50">
+               {order.fulfillmentStatus === 'pending' && (
+                <button onClick={() => updateStatus(order._id, 'preparing')} className="flex-1 py-3 text-sm font-bold text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 transition-colors uppercase tracking-wider">Start Preparing</button>
+               )}
+               {order.fulfillmentStatus === 'preparing' && (
+                <button onClick={() => updateStatus(order._id, 'ready')} className="flex-1 py-3 text-sm font-bold text-green-400 hover:bg-green-500/10 hover:text-green-300 transition-colors uppercase tracking-wider">Mark Ready</button>
+               )}
+               {order.fulfillmentStatus === 'ready' && (
+                <button onClick={() => updateStatus(order._id, 'served')} className="flex-1 py-3 text-sm font-bold text-gray-400 hover:bg-gray-700/50 hover:text-white transition-colors uppercase tracking-wider">Mark Served</button>
+               )}
+            </div>
+          </div>
+        )}
+      </Draggable>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
-      {/* Header */}
-      <header className="bg-gray-900 text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-10">
-        <div className="flex items-center space-x-3">
-          <div className="bg-meza-primary p-2 rounded-lg">
-            <ChefHat className="w-6 h-6 text-white" />
+    <div className="min-h-screen bg-[#0f172a] flex flex-col font-sans text-gray-100 selection:bg-meza-primary/30 selection:text-white">
+      {/* Premium Dark Header */}
+      <header className="bg-gray-900/80 backdrop-blur-xl border-b border-gray-800 p-4 flex justify-between items-center sticky top-0 z-20">
+        <div className="flex items-center space-x-4">
+          <div className="bg-gradient-to-br from-meza-primary to-orange-500 p-2.5 rounded-xl shadow-lg shadow-meza-primary/20">
+            <UtensilsCrossed className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight">KDS <span className="font-medium text-gray-400">| Meza Cafe</span></h1>
-            <p className="text-xs text-gray-400">Barista View</p>
+            <h1 className="text-2xl font-black tracking-tight text-white">meza<span className="text-meza-primary">.</span> KDS</h1>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mt-0.5">Kitchen Display System</p>
           </div>
         </div>
         <div className="flex items-center space-x-6">
-          {/* App Switcher */}
-          <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700 shadow-inner hidden md:flex">
-            <button onClick={() => navigate('/cashier')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 tap-scale">Cashier</button>
-            <button onClick={() => navigate('/table/Kiosk')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 tap-scale">Ordering</button>
-            <button className="px-4 py-1.5 rounded-lg bg-gray-700 shadow-sm text-sm font-bold text-white tap-scale">KDS</button>
+          <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 shadow-inner hidden md:flex">
+            <button onClick={() => navigate('/cashier')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 transition-colors">Cashier</button>
+            <button onClick={() => navigate('/table/Kiosk')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 transition-colors">Ordering</button>
+            <button className="px-5 py-2 rounded-lg bg-gray-800 shadow-sm border border-gray-700 text-sm font-bold text-white">KDS</button>
           </div>
-
-          <div className="flex items-center space-x-2 bg-gray-800 px-3 py-1.5 rounded-full text-sm font-bold">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+          <div className="flex items-center space-x-2 bg-green-500/10 border border-green-500/20 px-4 py-2 rounded-full text-sm font-bold text-green-400">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
             <span>Live Sync</span>
           </div>
         </div>
       </header>
 
-      {/* Main Board */}
-      <div className="flex-1 p-4 flex gap-4 overflow-hidden">
-        
-        {/* Pending Column */}
-        <div 
-          className="flex-1 flex flex-col bg-gray-200/50 rounded-2xl overflow-hidden border border-gray-200 transition-colors duration-200"
-          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-gray-300'); }}
-          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-gray-300'); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.currentTarget.classList.remove('bg-gray-300');
-            const orderId = e.dataTransfer.getData('orderId');
-            if (orderId) updateStatus(orderId, 'pending');
-          }}
-        >
-          <div className="bg-gray-300/50 p-3 text-center border-b border-gray-300">
-            <h2 className="font-black text-gray-700 uppercase tracking-widest text-sm flex justify-center items-center">
-              <AlertCircle className="w-4 h-4 mr-2" /> Pending ({pending.length})
-            </h2>
-          </div>
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            {pending.map(o => <OrderCard key={o._id} order={o} currentStatus="pending" />)}
-            {pending.length === 0 && <div className="h-full flex items-center justify-center text-gray-400 font-bold">No pending orders</div>}
-          </div>
-        </div>
+      {/* Board */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="flex-1 p-6 flex gap-6 overflow-x-auto overflow-y-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-gray-800/20 via-transparent to-transparent">
+          {Object.values(columns).map(col => {
+            const items = groupedOrders[col.id];
+            const Icon = col.icon;
+            
+            return (
+              <div key={col.id} className="flex-1 min-w-[350px] max-w-lg flex flex-col">
+                {/* Column Header */}
+                <div className={`mb-4 p-4 rounded-2xl bg-gray-900/60 backdrop-blur-md border border-gray-800 shadow-lg flex items-center justify-between`}>
+                  <div className="flex items-center space-x-3">
+                    <div className={`p-2 rounded-lg ${col.bg} border ${col.color}`}>
+                      <Icon className="w-5 h-5 text-gray-300" />
+                    </div>
+                    <h2 className="font-black text-gray-200 uppercase tracking-widest text-sm">{col.title}</h2>
+                  </div>
+                  <span className="bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1 rounded-full text-xs font-black">
+                    {items.length}
+                  </span>
+                </div>
 
-        {/* Preparing Column */}
-        <div 
-          className="flex-1 flex flex-col bg-blue-50/50 rounded-2xl overflow-hidden border border-blue-100 transition-colors duration-200"
-          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-100'); }}
-          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-blue-100'); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.currentTarget.classList.remove('bg-blue-100');
-            const orderId = e.dataTransfer.getData('orderId');
-            if (orderId) updateStatus(orderId, 'preparing');
-          }}
-        >
-          <div className="bg-blue-100/50 p-3 text-center border-b border-blue-200">
-            <h2 className="font-black text-blue-800 uppercase tracking-widest text-sm flex justify-center items-center">
-              <ChefHat className="w-4 h-4 mr-2" /> Preparing ({preparing.length})
-            </h2>
-          </div>
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            {preparing.map(o => <OrderCard key={o._id} order={o} currentStatus="preparing" />)}
-            {preparing.length === 0 && <div className="h-full flex items-center justify-center text-blue-300 font-bold">No active preparation</div>}
-          </div>
+                {/* Droppable Area */}
+                <Droppable droppableId={col.id}>
+                  {(provided, snapshot) => (
+                    <div 
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`flex-1 rounded-2xl p-2 transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver ? 'bg-gray-800/40 border-2 border-dashed border-gray-600' : 'bg-transparent border-2 border-transparent'}`}
+                    >
+                      {items.map((order, idx) => (
+                        <OrderCard key={order._id} order={order} index={idx} />
+                      ))}
+                      {provided.placeholder}
+                      {items.length === 0 && !snapshot.isDraggingOver && (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50">
+                          <Icon className="w-12 h-12 mb-3" />
+                          <p className="font-bold text-sm uppercase tracking-widest">No Orders</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
         </div>
-
-        {/* Ready Column */}
-        <div 
-          className="flex-1 flex flex-col bg-green-50/50 rounded-2xl overflow-hidden border border-green-100 transition-colors duration-200"
-          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-green-100'); }}
-          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-green-100'); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.currentTarget.classList.remove('bg-green-100');
-            const orderId = e.dataTransfer.getData('orderId');
-            if (orderId) updateStatus(orderId, 'ready');
-          }}
-        >
-          <div className="bg-green-100/50 p-3 text-center border-b border-green-200">
-            <h2 className="font-black text-green-800 uppercase tracking-widest text-sm flex justify-center items-center">
-              <Check className="w-4 h-4 mr-2" /> Ready to Serve ({ready.length})
-            </h2>
-          </div>
-          <div className="flex-1 p-4 overflow-y-auto space-y-4">
-            {ready.map(o => <OrderCard key={o._id} order={o} currentStatus="ready" />)}
-            {ready.length === 0 && <div className="h-full flex items-center justify-center text-green-300 font-bold">No orders ready</div>}
-          </div>
-        </div>
-
-      </div>
+      </DragDropContext>
     </div>
   );
 }
