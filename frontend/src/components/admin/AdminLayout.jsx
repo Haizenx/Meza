@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, UtensilsCrossed, Calculator, Package, LogOut, CalendarRange, Users, FileText } from 'lucide-react';
+import { LayoutDashboard, Receipt, UtensilsCrossed, Calculator, Package, LogOut, CalendarRange, Users, FileText, UserCog } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import ProfileModal from '../ProfileModal';
 
 export default function AdminLayout() {
   const { logout, user } = useAuth();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   const navItems = [
     { name: 'Dashboard', path: '/admin', icon: LayoutDashboard },
@@ -61,7 +63,14 @@ export default function AdminLayout() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-100">
+        <div className="p-4 border-t border-gray-100 space-y-1">
+          <button 
+            onClick={() => setIsProfileOpen(true)}
+            className="flex w-full items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-meza-text transition-colors tap-scale cursor-pointer"
+          >
+            <UserCog className="w-4 h-4" strokeWidth={2.5} />
+            <span>Profile Settings</span>
+          </button>
           <button 
             onClick={logout}
             className="flex w-full items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors tap-scale cursor-pointer"
@@ -95,6 +104,7 @@ export default function AdminLayout() {
         </div>
       </main>
 
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
   );
 }

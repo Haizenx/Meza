@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock } from 'lucide-react';
+import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { openDB } from 'idb';
 import { io } from 'socket.io-client';
+import ProfileModal from '../../components/ProfileModal';
 
 export default function CashierMode() {
   const { user, logout, token } = useAuth();
@@ -36,6 +37,7 @@ export default function CashierMode() {
   const [pinModal, setPinModal] = useState({ isOpen: false, action: null, payload: null });
   const [pinInput, setPinInput] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // Initialize DB and Sync Loop
   useEffect(() => {
@@ -440,7 +442,8 @@ export default function CashierMode() {
             </div>
 
             <button onClick={() => setIsEndingShift(true)} className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 text-[11px] font-bold uppercase"><SquareTerminal className="w-3.5 h-3.5" /><span>Close Register</span></button>
-            <button onClick={() => navigate('/login')} className="p-2 text-gray-400 hover:text-red-600 rounded-lg"><LogOut className="w-5 h-5" /></button>
+            <button onClick={() => setIsProfileOpen(true)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg cursor-pointer transition-colors"><UserCog className="w-5 h-5" /></button>
+            <button onClick={() => navigate('/login')} className="p-2 text-gray-400 hover:text-red-600 rounded-lg cursor-pointer transition-colors"><LogOut className="w-5 h-5" /></button>
           </div>
         </header>
 
@@ -676,6 +679,8 @@ export default function CashierMode() {
           </div>
         </div>
       )}
+      
+      <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
   );
 }
