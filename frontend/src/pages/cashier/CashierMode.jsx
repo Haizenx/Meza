@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog } from 'lucide-react';
+import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog, Pause, Bell, Percent } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { openDB } from 'idb';
@@ -28,10 +28,16 @@ export default function CashierMode() {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuItems, setMenuItems] = useState([]);
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
-  const [rightPanelTab, setRightPanelTab] = useState('order'); // 'order' | 'unpaid' | 'kitchen' | 'history'
+  const [rightPanelTab, setRightPanelTab] = useState('order'); // 'order' | 'unpaid' | 'kitchen' | 'history' | 'held'
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [unpaidOrders, setUnpaidOrders] = useState([]);
   const [shiftAnalytics, setShiftAnalytics] = useState(null);
+  
+  // Efficiency State
+  const [heldOrders, setHeldOrders] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [clickEffects, setClickEffects] = useState([]);
+  const [cartPulse, setCartPulse] = useState(false);
   
   // Security Modal State (Manager PIN)
   const [pinModal, setPinModal] = useState({ isOpen: false, action: null, payload: null });
@@ -73,7 +79,12 @@ export default function CashierMode() {
     newSocket.on('inventory:low_stock', (data) => console.warn('Low stock alert:', data));
     
     newSocket.on('kds:new_order', () => { fetchKitchenOrders(); fetchUnpaidOrders(); });
-    newSocket.on('kds:update_status', () => fetchKitchenOrders());
+    newSocket.on('kds:update_status', (order) => {
+      fetchKitchenOrders();
+      if (order.fulfillmentStatus === 'ready') {
+        showToast(`Order #${order._id.slice(-4).toUpperCase()} is Ready!`, 'success');
+      }
+    });
     newSocket.on('order:updated', () => { fetchUnpaidOrders(); fetchShiftAnalytics(); });
     newSocket.on('shift:updated', () => fetchShiftAnalytics());
 
@@ -233,6 +244,55 @@ export default function CashierMode() {
     }
   };
 
+  // --- EFFICIENCY HELPERS ---
+  const showToast = (message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
+
+  const holdCurrentOrder = () => {
+    if (cart.length === 0) return;
+    setHeldOrders(prev => [...prev, { id: Date.now(), cart, discountAmount, time: new Date() }]);
+    setCart([]);
+    setDiscountAmount(0);
+    showToast('Order placed on hold.', 'info');
+  };
+
+  const resumeHeldOrder = (held) => {
+    setCart(held.cart);
+    setDiscountAmount(held.discountAmount);
+    setHeldOrders(prev => prev.filter(h => h.id !== held.id));
+    setRightPanelTab('order');
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || isStartingShift || isEndingShift || pinModal.isOpen) return;
+
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        const sub = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const tot = Math.max(0, sub - discountAmount);
+        
+        if (cart.length > 0 && !isCheckingOut) setIsCheckingOut(true);
+        else if (isCheckingOut && paymentMethod === 'cash' && parseFloat(cashTendered||0) >= tot) {
+          processCheckout();
+        }
+      } else if (e.key === 'Escape') {
+        if (isCheckingOut) setIsCheckingOut(false);
+        else if (searchQuery) setSearchQuery('');
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        document.getElementById('pos-search')?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, isCheckingOut, cashTendered, isStartingShift, isEndingShift, pinModal.isOpen, discountAmount, paymentMethod, searchQuery]);
+
   // --- CHECKOUT LOGIC ---
   const processCheckout = async () => {
     // Generate idempotency key instantly
@@ -301,8 +361,19 @@ export default function CashierMode() {
   };
 
   // --- CART LOGIC ---
-  const addToCart = (item) => {
+  const addToCart = (item, e) => {
     if (!item.isAvailable) return;
+
+    if (e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const newEffect = { id: Date.now(), x: e.clientX - rect.left, y: e.clientY - rect.top };
+      setClickEffects(prev => [...prev, newEffect]);
+      setTimeout(() => setClickEffects(prev => prev.filter(ce => ce.id !== newEffect.id)), 600);
+    }
+
+    setCartPulse(true);
+    setTimeout(() => setCartPulse(false), 300);
+
     const existing = cart.find(c => c._id === item._id);
     if (existing) {
       setCart(cart.map(c => c._id === item._id ? { ...c, quantity: c.quantity + 1 } : c));
@@ -365,7 +436,22 @@ export default function CashierMode() {
   const changeDue = paymentMethod === 'cash' && cashTendered ? Math.max(0, parseFloat(cashTendered) - total) : 0;
 
   return (
-    <div className="flex h-screen bg-[#f4f1eb] font-sans antialiased relative">
+    <div className="flex h-screen bg-[#f4f1eb] font-sans antialiased relative overflow-hidden">
+      
+      {/* Click Effects */}
+      {clickEffects.map(ce => (
+        <div key={ce.id} className="absolute text-meza-primary font-black text-2xl pointer-events-none drop-shadow-md animate-ping" style={{ left: ce.x - 10, top: ce.y - 20, zIndex: 9999, animationDuration: '0.6s' }}>+1</div>
+      ))}
+      
+      {/* Toasts */}
+      <div className="absolute top-20 right-6 z-[9999] flex flex-col space-y-2 pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id} className={`px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 transform transition-all ${t.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-900 text-white'}`}>
+            {t.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+            <span className="font-bold text-sm tracking-wide">{t.message}</span>
+          </div>
+        ))}
+      </div>
       
       {/* SHIFT GATES */}
       {isStartingShift && (
@@ -429,7 +515,7 @@ export default function CashierMode() {
             {/* Search */}
             <div className="relative hidden md:block ml-4">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="Search menu..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-sm outline-none focus:border-meza-primary" />
+              <input id="pos-search" type="text" placeholder="Search menu (Cmd+F)..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-sm outline-none focus:border-meza-primary" />
             </div>
 
           </div>
@@ -464,7 +550,7 @@ export default function CashierMode() {
         <main className="flex-1 overflow-y-auto p-6">
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredMenu.map(item => (
-              <div key={item._id} onClick={() => addToCart(item)} className={`bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${!item.isAvailable ? 'opacity-40 grayscale pointer-events-none border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
+              <div key={item._id} onClick={(e) => addToCart(item, e)} className={`bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${!item.isAvailable ? 'opacity-40 grayscale pointer-events-none border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
                 <div className="flex justify-between items-start">
                   <div className="p-2.5 rounded-lg bg-gray-50 text-meza-primary">
                     {item.category === 'Drinks' ? <Coffee className="w-6 h-6"/> : item.category === 'Food' ? <UtensilsCrossed className="w-6 h-6"/> : <Croissant className="w-6 h-6"/>}
@@ -507,13 +593,22 @@ export default function CashierMode() {
           >
             History
           </button>
+          <button 
+            onClick={() => setRightPanelTab('held')} 
+            className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'held' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            Held {heldOrders.length > 0 && <span className="ml-1.5 bg-gray-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{heldOrders.length}</span>}
+          </button>
         </div>
 
         {rightPanelTab === 'order' ? (
           <>
             <div className="h-10 flex items-center px-6 border-b border-gray-100 bg-[#fcf9f5] justify-between">
-              <span className="font-bold text-gray-400 text-xs uppercase tracking-widest">Cart Items</span>
-              <button onClick={() => requestManagerPin('void')} disabled={cart.length===0} className="text-[10px] uppercase font-bold text-red-500 border border-red-200 bg-red-50 px-2 py-0.5 rounded cursor-pointer disabled:opacity-50">Void Order</button>
+              <span className={`font-bold text-xs uppercase tracking-widest transition-colors ${cartPulse ? 'text-meza-primary' : 'text-gray-400'}`}>Cart Items</span>
+              <div className="flex space-x-2">
+                <button onClick={holdCurrentOrder} disabled={cart.length===0} className="text-[10px] uppercase font-bold text-gray-500 border border-gray-200 hover:bg-gray-100 bg-white px-2 py-0.5 rounded cursor-pointer flex items-center space-x-1 disabled:opacity-50"><Pause className="w-3 h-3" /><span>Hold</span></button>
+                <button onClick={() => requestManagerPin('void')} disabled={cart.length===0} className="text-[10px] uppercase font-bold text-red-500 border border-red-200 bg-red-50 px-2 py-0.5 rounded cursor-pointer disabled:opacity-50 flex items-center space-x-1"><Trash2 className="w-3 h-3" /><span>Void</span></button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -534,6 +629,17 @@ export default function CashierMode() {
             </div>
 
             <div className="border-t border-gray-200 bg-white p-5 space-y-3">
+              
+              {/* Quick Discounts */}
+              <div className="flex space-x-2 mb-2">
+                <button onClick={() => requestManagerPin('discount', subtotal * 0.20)} disabled={cart.length===0} className="flex-1 py-1.5 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold uppercase rounded flex items-center justify-center space-x-1 disabled:opacity-50">
+                  <Percent className="w-3 h-3" /><span>Senior 20%</span>
+                </button>
+                <button onClick={() => requestManagerPin('discount', subtotal * 0.10)} disabled={cart.length===0} className="flex-1 py-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold uppercase rounded flex items-center justify-center space-x-1 disabled:opacity-50">
+                  <Percent className="w-3 h-3" /><span>Staff 10%</span>
+                </button>
+              </div>
+
               <div className="flex justify-between text-sm font-medium text-gray-500"><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
               {discountAmount > 0 && <div className="flex justify-between text-sm font-bold text-purple-600"><span>Discount</span><span>-₱{discountAmount.toFixed(2)}</span></div>}
               <div className="flex justify-between items-end pt-1 border-t border-dashed border-gray-200 mt-2">
@@ -606,7 +712,7 @@ export default function CashierMode() {
               ))
             )}
           </div>
-        ) : (
+        ) : rightPanelTab === 'history' ? (
           <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
             <div className="flex justify-between items-center mb-2 px-1">
               <h3 className="font-bold text-meza-text text-sm uppercase tracking-wider">Shift Transactions</h3>
@@ -638,7 +744,28 @@ export default function CashierMode() {
               ))
             )}
           </div>
-        )}
+        ) : rightPanelTab === 'held' ? (
+          <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            {heldOrders.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No held orders</div>
+            ) : (
+              heldOrders.map(h => (
+                <div key={h.id} className="bg-white border-l-4 border-gray-500 rounded-xl shadow-sm p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="font-black text-gray-800 text-sm">Held at {h.time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    <span className="font-black text-meza-primary text-sm">₱{h.cart.reduce((s,i)=>s+(i.price*i.quantity),0).toFixed(2)}</span>
+                  </div>
+                  <ul className="space-y-1 mb-4 text-xs text-gray-500 font-medium">
+                    {h.cart.map((i, idx) => (
+                      <li key={idx} className="flex justify-between"><span>{i.quantity}x {i.name}</span></li>
+                    ))}
+                  </ul>
+                  <button onClick={() => resumeHeldOrder(h)} className="w-full py-2 bg-meza-text text-white rounded font-bold text-xs hover:bg-black">Resume Order</button>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Checkout Modal */}
@@ -662,8 +789,15 @@ export default function CashierMode() {
 
               {paymentMethod === 'cash' && (
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
-                  <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
-                  <input type="number" step="0.01" value={cashTendered} onChange={e=>setCashTendered(e.target.value)} className="w-full mt-2 text-2xl font-black text-meza-text bg-transparent outline-none border-b-2 border-gray-200 focus:border-meza-primary py-1" placeholder="0.00" />
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
+                    <div className="flex space-x-1">
+                      <button onClick={()=>setCashTendered(total.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">Exact</button>
+                      <button onClick={()=>setCashTendered('500')} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱500</button>
+                      <button onClick={()=>setCashTendered('1000')} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱1000</button>
+                    </div>
+                  </div>
+                  <input autoFocus type="number" step="0.01" value={cashTendered} onChange={e=>setCashTendered(e.target.value)} className="w-full mt-1 text-2xl font-black text-meza-text bg-transparent outline-none border-b-2 border-gray-200 focus:border-meza-primary py-1" placeholder="0.00" />
                   <div className="flex justify-between mt-3 text-sm font-bold">
                     <span className="text-gray-500">Change Due:</span>
                     <span className={changeDue > 0 ? 'text-green-600' : 'text-gray-400'}>₱{changeDue.toFixed(2)}</span>
