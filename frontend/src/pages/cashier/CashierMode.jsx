@@ -671,7 +671,7 @@ export default function CashierMode() {
               {filteredMenu.map(item => {
                 const isDisabled = !item.isAvailable || item.calculatedStock === 0;
                 return (
-                  <div key={item._id} onClick={(e) => addToCart(item, e)} className={`relative bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${isDisabled ? 'opacity-50 grayscale border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
+                  <div key={item._id} onClick={(e) => handleItemClick(item, e)} className={`relative bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${isDisabled ? 'opacity-50 grayscale border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
 
                     {/* Stock Counter Badge */}
                     {item.calculatedStock !== null && item.calculatedStock !== undefined && (
