@@ -77,12 +77,12 @@ router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) =>
 });
 
 // Get analytics for a specific shift
-router.get('/:id/analytics', authenticate, authorize('owner', 'manager'), async (req, res) => {
+router.get('/:id/analytics', authenticate, async (req, res) => {
   try {
     const shift = await Shift.findById(req.params.id).populate('staff', 'name').lean();
     if (!shift) return res.status(404).json({ message: 'Shift not found' });
 
-    const orders = await Order.find({ shiftId: shift._id }).lean();
+    const orders = await Order.find({ shiftId: shift._id }).populate('items.menuItemId', 'name').lean();
     
     let totalSales = 0;
     let cashSales = 0;
@@ -92,14 +92,16 @@ router.get('/:id/analytics', authenticate, authorize('owner', 'manager'), async 
 
     orders.forEach(order => {
       totalSales += order.total;
-      if (order.paymentMethod === 'cash') cashSales += order.total;
-      else if (order.paymentMethod === 'card') cardSales += order.total;
-      else if (order.paymentMethod === 'gcash') gcashSales += order.total;
+      const pm = (order.paymentMethod || '').toLowerCase();
+      if (pm === 'cash') cashSales += order.total;
+      else if (pm === 'card') cardSales += order.total;
+      else if (pm === 'gcash') gcashSales += order.total;
 
       order.items.forEach(item => {
-        if (!itemCounts[item.nameAtSale]) itemCounts[item.nameAtSale] = { name: item.nameAtSale, qty: 0, revenue: 0 };
-        itemCounts[item.nameAtSale].qty += item.quantity;
-        itemCounts[item.nameAtSale].revenue += (item.quantity * item.priceAtSale);
+        const itemName = item.nameAtSale || (item.menuItemId ? item.menuItemId.name : 'Unknown Item');
+        if (!itemCounts[itemName]) itemCounts[itemName] = { name: itemName, qty: 0, revenue: 0 };
+        itemCounts[itemName].qty += item.quantity || 1;
+        itemCounts[itemName].revenue += ((item.quantity || 1) * (item.priceAtSale || 0));
       });
     });
 
