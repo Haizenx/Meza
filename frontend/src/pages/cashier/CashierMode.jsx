@@ -307,10 +307,15 @@ export default function CashierMode() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, isCheckingOut, cashTendered, isStartingShift, isEndingShift, pinModal.isOpen, discountAmount, paymentMethod, searchQuery]);
+  }, [cart, isCheckingOut, cashTendered, isStartingShift, isEndingShift, pinModal.isOpen, discountAmount, paymentMethod, searchQuery, currentShift, total]);
 
   // --- CHECKOUT LOGIC ---
   const processCheckout = async () => {
+    if (!currentShift || !currentShift._id) {
+      showToast('Cannot process order: No active shift found!', 'error');
+      return;
+    }
+
     // Generate idempotency key instantly
     const localUUID = crypto.randomUUID();
     
