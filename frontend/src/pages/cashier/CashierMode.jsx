@@ -314,7 +314,7 @@ export default function CashierMode() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, isCheckingOut, cashTendered, isStartingShift, isEndingShift, pinModal.isOpen, discountAmount, paymentMethod, searchQuery, currentShift, total]);
+  }, [cart, isCheckingOut, cashTendered, isStartingShift, isEndingShift, pinModal.isOpen, discountAmount, paymentMethod, searchQuery, currentShift]);
 
   // --- CHECKOUT LOGIC ---
   const processCheckout = async () => {
