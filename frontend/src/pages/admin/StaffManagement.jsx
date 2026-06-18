@@ -23,7 +23,7 @@ export default function StaffManagement() {
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/users`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(data => {
         if (Array.isArray(data)) setStaff(data);
       })

@@ -27,7 +27,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}/cost`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
-        .then(res => res.json())
+        .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
         .then(data => {
           if (data.ingredientsBreakdown) {
             setIngredients(data.ingredientsBreakdown.map(ing => ({

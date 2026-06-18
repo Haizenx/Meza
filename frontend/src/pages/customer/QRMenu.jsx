@@ -17,14 +17,14 @@ export default function QRMenu() {
 
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu/public`)
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(data => setMenuItems(data))
       .catch(console.error);
 
     const socket = io(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`);
     socket.on('menu:updated', () => {
       fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu/public`)
-        .then(res => res.json())
+        .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
         .then(data => setMenuItems(data));
     });
 

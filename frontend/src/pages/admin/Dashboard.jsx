@@ -20,7 +20,7 @@ export default function Dashboard() {
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/analytics/dashboard`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setData)
       .catch(console.error);
   };

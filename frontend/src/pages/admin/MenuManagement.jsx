@@ -14,14 +14,14 @@ export default function MenuManagement() {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setItems)
       .catch(console.error);
       
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setRawIngredients)
       .catch(console.error);
   };

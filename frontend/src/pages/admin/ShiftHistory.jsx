@@ -17,7 +17,7 @@ export default function ShiftHistory() {
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(data => {
         if (Array.isArray(data)) setShifts(data);
         else setShifts([]);

@@ -28,12 +28,12 @@ export default function InventoryManagement() {
 
   const fetchData = () => {
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setMenuItems)
       .catch(console.error);
 
     fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/inventory`, { headers: { 'Authorization': `Bearer ${token}` } })
-      .then(res => res.json())
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setIngredients)
       .catch(console.error);
   };
