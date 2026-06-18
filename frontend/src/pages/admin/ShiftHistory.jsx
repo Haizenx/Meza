@@ -326,6 +326,45 @@ export default function ShiftHistory() {
                     </div>
                   </div>
 
+                  {/* Transaction History */}
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Transaction History</h4>
+                    <div className="border border-gray-100 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-gray-50 text-gray-500 text-[10px] uppercase font-bold">
+                          <tr>
+                            <th className="px-4 py-2">Time</th>
+                            <th className="px-4 py-2">Order ID</th>
+                            <th className="px-4 py-2">Items</th>
+                            <th className="px-4 py-2 text-right">Method</th>
+                            <th className="px-4 py-2 text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {analyticsData.analytics.orders && analyticsData.analytics.orders.length > 0 ? (
+                            analyticsData.analytics.orders.map(order => (
+                              <tr key={order._id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 font-medium text-gray-500">{new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                                <td className="px-4 py-3 font-bold text-gray-700">#{order._id.slice(-4).toUpperCase()}</td>
+                                <td className="px-4 py-3 text-gray-600 text-xs">
+                                  {order.items.map(i => `${i.quantity}x ${i.nameAtSale}`).join(', ')}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${order.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                    {order.paymentMethod}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-black text-meza-text">₱{order.total.toFixed(2)}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr><td colSpan="5" className="px-4 py-6 text-center text-gray-400">No transactions recorded.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
               ) : null}
             </div>

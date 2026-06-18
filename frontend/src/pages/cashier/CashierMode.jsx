@@ -27,9 +27,10 @@ export default function CashierMode() {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuItems, setMenuItems] = useState([]);
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
-  const [rightPanelTab, setRightPanelTab] = useState('order'); // 'order' | 'unpaid' | 'kitchen'
+  const [rightPanelTab, setRightPanelTab] = useState('order'); // 'order' | 'unpaid' | 'kitchen' | 'history'
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [unpaidOrders, setUnpaidOrders] = useState([]);
+  const [shiftAnalytics, setShiftAnalytics] = useState(null);
   
   // Security Modal State (Manager PIN)
   const [pinModal, setPinModal] = useState({ isOpen: false, action: null, payload: null });
@@ -71,7 +72,8 @@ export default function CashierMode() {
     
     newSocket.on('kds:new_order', () => { fetchKitchenOrders(); fetchUnpaidOrders(); });
     newSocket.on('kds:update_status', () => fetchKitchenOrders());
-    newSocket.on('order:updated', () => fetchUnpaidOrders());
+    newSocket.on('order:updated', () => { fetchUnpaidOrders(); fetchShiftAnalytics(); });
+    newSocket.on('shift:updated', () => fetchShiftAnalytics());
 
     setSocket(newSocket);
 
@@ -83,6 +85,19 @@ export default function CashierMode() {
 
     return () => newSocket.disconnect();
   }, [token]);
+
+  useEffect(() => {
+    if (currentShift) fetchShiftAnalytics();
+  }, [currentShift]);
+
+  const fetchShiftAnalytics = async () => {
+    if (!currentShift) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/${currentShift._id}/analytics`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      setShiftAnalytics(data.analytics);
+    } catch (e) { console.error("Analytics fetch error", e); }
+  };
 
   const fetchShift = async () => {
     try {
@@ -483,6 +498,12 @@ export default function CashierMode() {
           >
             Kitchen {kitchenOrders.length > 0 && <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{kitchenOrders.length}</span>}
           </button>
+          <button 
+            onClick={() => setRightPanelTab('history')} 
+            className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'history' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            History
+          </button>
         </div>
 
         {rightPanelTab === 'order' ? (
@@ -551,7 +572,7 @@ export default function CashierMode() {
               ))
             )}
           </div>
-        ) : (
+        ) : rightPanelTab === 'kitchen' ? (
           <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
             {kitchenOrders.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No active kitchen orders</div>
@@ -578,6 +599,38 @@ export default function CashierMode() {
                   {o.fulfillmentStatus === 'pending' && <button onClick={() => updateKitchenStatus(o._id, 'preparing')} className="w-full py-2 bg-blue-600 text-white rounded font-bold text-sm hover:bg-blue-700">Start Preparing</button>}
                   {o.fulfillmentStatus === 'preparing' && <button onClick={() => updateKitchenStatus(o._id, 'ready')} className="w-full py-2 bg-green-600 text-white rounded font-bold text-sm hover:bg-green-700">Mark Ready</button>}
                   {o.fulfillmentStatus === 'ready' && <button onClick={() => updateKitchenStatus(o._id, 'served')} className="w-full py-2 bg-gray-800 text-white rounded font-bold text-sm hover:bg-gray-900">Mark Served</button>}
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            <div className="flex justify-between items-center mb-2 px-1">
+              <h3 className="font-bold text-meza-text text-sm uppercase tracking-wider">Shift Transactions</h3>
+              <span className="text-xs font-bold text-meza-primary bg-meza-primary/10 px-2 py-1 rounded">₱{shiftAnalytics?.totalSales?.toFixed(2) || '0.00'}</span>
+            </div>
+            {!shiftAnalytics || !shiftAnalytics.orders || shiftAnalytics.orders.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No transactions yet</div>
+            ) : (
+              shiftAnalytics.orders.map(o => (
+                <div key={o._id} className="bg-white border border-gray-100 rounded-xl shadow-sm p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-black text-gray-800 text-sm">#{o._id.slice(-4).toUpperCase()}</span>
+                    <span className="text-xs font-bold text-gray-400">{new Date(o.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  </div>
+                  <ul className="space-y-1 mb-3 border-b border-gray-100 pb-3">
+                    {o.items.map((i, idx) => (
+                      <li key={idx} className="flex justify-between text-xs text-gray-600">
+                        <span>{i.quantity}x {i.nameAtSale}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex justify-between items-center">
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${o.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {o.paymentMethod}
+                    </span>
+                    <span className="font-black text-meza-text text-sm">₱{o.total.toFixed(2)}</span>
+                  </div>
                 </div>
               ))
             )}

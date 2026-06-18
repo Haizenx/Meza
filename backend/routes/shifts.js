@@ -113,7 +113,8 @@ router.get('/:id/analytics', authenticate, authorize('owner', 'manager'), async 
         cashSales,
         cardSales,
         gcashSales,
-        topItems
+        topItems,
+        orders
       }
     });
   } catch (err) {
