@@ -1,0 +1,100 @@
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
+
+const app = express();
+
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'];
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+  }
+});
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+app.use(express.json());
+app.use(cookieParser());
+
+// Expose io to routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// Simple test route
+app.get('/api/internal/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date() });
+});
+
+// Import and mount routers
+const authRoutes = require('./routes/auth');
+const menuRoutes = require('./routes/menu');
+const inventoryRoutes = require('./routes/inventory');
+const orderRoutes = require('./routes/orders');
+const recipeRoutes = require('./routes/recipes');
+const userRoutes = require('./routes/users');
+const shiftRoutes = require('./routes/shifts');
+const analyticsRoutes = require('./routes/analytics');
+const bookingRoutes = require('./routes/bookings');
+
+// Mount routes under /api (removed /internal per spec)
+app.use('/api/auth', authRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/recipes', recipeRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/shifts', shiftRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/bookings', bookingRoutes);
+
+const PORT = process.env.PORT || 5001;
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/meza_cafe';
+
+// Socket.io Authentication Middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    return next(new Error('Authentication error: No token'));
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error: Invalid token'));
+  }
+});
+
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log('Connected to MongoDB');
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+  });
+
+io.on('connection', (socket) => {
+  console.log(`Client connected: ${socket.id} (User: ${socket.user.id})`);
+  socket.on('disconnect', () => {
+    console.log(`Client disconnected: ${socket.id}`);
+  });
+});

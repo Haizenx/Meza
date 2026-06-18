@@ -1,0 +1,32 @@
+services:
+  # BACKEND SERVICE
+  - type: web
+    name: meza-api
+    env: node
+    region: singapore # or ohio/frankfurt
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false # User must set this in the Render dashboard!
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://meza-pos.onrender.com # Change this if the frontend URL is different
+
+  # FRONTEND SERVICE
+  - type: web
+    name: meza-pos
+    env: static
+    region: singapore
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://meza-api.onrender.com # Points to the backend service

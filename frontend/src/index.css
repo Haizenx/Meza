@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-meza-primary: #6b3227; /* Deep brownish red from logo */
+  --color-meza-primary-hover: #52251d;
+  --color-meza-bg: #fcf9f5; /* Warm off-white cafe background */
+  --color-meza-surface: #ffffff;
+  --color-meza-text: #2d1a15; /* Dark espresso brown */
+  --color-meza-muted: #8c736e; /* Muted cafe brown */
+  --color-meza-border: #e6dcd8; /* Very light warm gray/brown */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-meza-bg);
+  color: var(--color-meza-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none; /* Prevent accidental text selection on touch tablets */
+  -webkit-user-select: none;
+}
+
+/* Allow text selection in inputs */
+input, textarea {
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
+/* Micro-Animations */
+.hover-lift {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+}
+
+.tap-scale {
+  transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tap-scale:active {
+  transform: scale(0.96);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-meza-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-meza-muted);
+}
