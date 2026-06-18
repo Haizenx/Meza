@@ -90,7 +90,14 @@ export default function KitchenDisplay() {
     const isOverdue = elapsed > 10; // >10 mins is overdue
 
     return (
-      <div className={`bg-white rounded-xl shadow-md border-t-4 overflow-hidden flex flex-col h-full ${isOverdue ? 'border-red-500' : 'border-meza-primary'}`}>
+      <div 
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('orderId', order._id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        className={`bg-white rounded-xl shadow-md border-t-4 overflow-hidden flex flex-col h-full cursor-grab active:cursor-grabbing transition-transform hover:-translate-y-1 ${isOverdue ? 'border-red-500' : 'border-meza-primary'}`}
+      >
         <div className="p-3 bg-gray-50 flex justify-between items-center border-b border-gray-100">
           <div className="flex items-center space-x-2">
             <span className="font-black text-gray-800 text-lg">#{order._id.slice(-4).toUpperCase()}</span>
@@ -182,7 +189,17 @@ export default function KitchenDisplay() {
       <div className="flex-1 p-4 flex gap-4 overflow-hidden">
         
         {/* Pending Column */}
-        <div className="flex-1 flex flex-col bg-gray-200/50 rounded-2xl overflow-hidden border border-gray-200">
+        <div 
+          className="flex-1 flex flex-col bg-gray-200/50 rounded-2xl overflow-hidden border border-gray-200 transition-colors duration-200"
+          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-gray-300'); }}
+          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-gray-300'); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('bg-gray-300');
+            const orderId = e.dataTransfer.getData('orderId');
+            if (orderId) updateStatus(orderId, 'pending');
+          }}
+        >
           <div className="bg-gray-300/50 p-3 text-center border-b border-gray-300">
             <h2 className="font-black text-gray-700 uppercase tracking-widest text-sm flex justify-center items-center">
               <AlertCircle className="w-4 h-4 mr-2" /> Pending ({pending.length})
@@ -195,7 +212,17 @@ export default function KitchenDisplay() {
         </div>
 
         {/* Preparing Column */}
-        <div className="flex-1 flex flex-col bg-blue-50/50 rounded-2xl overflow-hidden border border-blue-100">
+        <div 
+          className="flex-1 flex flex-col bg-blue-50/50 rounded-2xl overflow-hidden border border-blue-100 transition-colors duration-200"
+          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-100'); }}
+          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-blue-100'); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('bg-blue-100');
+            const orderId = e.dataTransfer.getData('orderId');
+            if (orderId) updateStatus(orderId, 'preparing');
+          }}
+        >
           <div className="bg-blue-100/50 p-3 text-center border-b border-blue-200">
             <h2 className="font-black text-blue-800 uppercase tracking-widest text-sm flex justify-center items-center">
               <ChefHat className="w-4 h-4 mr-2" /> Preparing ({preparing.length})
@@ -208,7 +235,17 @@ export default function KitchenDisplay() {
         </div>
 
         {/* Ready Column */}
-        <div className="flex-1 flex flex-col bg-green-50/50 rounded-2xl overflow-hidden border border-green-100">
+        <div 
+          className="flex-1 flex flex-col bg-green-50/50 rounded-2xl overflow-hidden border border-green-100 transition-colors duration-200"
+          onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-green-100'); }}
+          onDragLeave={(e) => { e.currentTarget.classList.remove('bg-green-100'); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.classList.remove('bg-green-100');
+            const orderId = e.dataTransfer.getData('orderId');
+            if (orderId) updateStatus(orderId, 'ready');
+          }}
+        >
           <div className="bg-green-100/50 p-3 text-center border-b border-green-200">
             <h2 className="font-black text-green-800 uppercase tracking-widest text-sm flex justify-center items-center">
               <Check className="w-4 h-4 mr-2" /> Ready to Serve ({ready.length})
