@@ -70,8 +70,9 @@ export default function MenuManagement() {
       </div>
 
       <div className="bg-white rounded-xl shadow-[0_2px_10px_rgb(0,0,0,0.02)] border border-gray-200 overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-[#fcf9f5] border-b border-gray-200 text-gray-500 text-xs font-semibold uppercase tracking-wider">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm min-w-[700px]">
+            <thead className="bg-[#fcf9f5] border-b border-gray-200 text-gray-500 text-xs font-semibold uppercase tracking-wider">
             <tr>
               <th className="px-6 py-4">Item Name</th>
               <th className="px-6 py-4">Category</th>
@@ -119,7 +120,8 @@ export default function MenuManagement() {
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <MenuItemModal 

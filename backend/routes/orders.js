@@ -77,11 +77,11 @@ router.post('/', authenticate, [
 
       processedItems.push({
         menuItemId: menuItem._id,
-        nameAtSale: menuItem.name,
-        priceAtSale: itemFinalPrice, // Snapshotted at moment of sale (includes modifiers)
-        quantity: item.quantity,
-        note: item.note,
-        modifiers: verifiedModifiers
+        nameAtSale: menuItem.name || 'Unknown Item',
+        priceAtSale: itemFinalPrice || 0, // Snapshotted at moment of sale (includes modifiers)
+        quantity: item.quantity || 1,
+        note: item.note || '',
+        modifiers: verifiedModifiers || []
       });
 
       // 2. Deduct Finished Goods Stock directly from MenuItem
@@ -230,10 +230,10 @@ router.post('/qr', async (req, res) => {
 
       processedItems.push({
         menuItemId: menuItem._id,
-        nameAtSale: menuItem.name,
-        priceAtSale: menuItem.price,
-        quantity: item.quantity,
-        note: item.note
+        nameAtSale: menuItem.name || 'Unknown Item',
+        priceAtSale: menuItem.price || 0,
+        quantity: item.quantity || 1,
+        note: item.note || ''
       });
 
       menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
