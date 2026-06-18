@@ -34,10 +34,11 @@ app.use(cors({
   credentials: true
 }));
 
+app.use(express.json({ limit: '10kb' })); // Body parser with size limit
+app.use(cookieParser());
+
 // SECURITY MIDDLEWARE
 app.use(helmet()); // Set security HTTP headers
-app.use(mongoSanitize()); // Data sanitization against NoSQL query injection
-app.use(xss()); // Data sanitization against XSS
 app.use(hpp()); // Prevent parameter pollution
 
 const limiter = rateLimit({
@@ -46,9 +47,6 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api', limiter);
-
-app.use(express.json({ limit: '10kb' })); // Body parser with size limit
-app.use(cookieParser());
 
 // Expose io to routes
 app.use((req, res, next) => {
