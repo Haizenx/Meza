@@ -116,9 +116,7 @@ router.post('/', authenticate, [
     }
 
     // Calculate Final Total
-    const discountAmount = 0; 
-    const total = subtotal - discountAmount;
-    const changeDue = paymentMethod === 'cash' && cashTendered ? cashTendered - total : 0;
+    // Constants re-declared later in the file for split payment logic
 
     // 4. Execute Atomic Raw Inventory Deductions
     for (let [ingId, amount] of inventoryDeductions.entries()) {
