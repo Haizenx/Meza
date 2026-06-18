@@ -106,6 +106,11 @@ export default function KitchenDisplay() {
                 Table {order.tableNumber}
               </span>
             )}
+            {order.customerName && (
+              <span className="bg-meza-primary text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                {order.customerName}
+              </span>
+            )}
           </div>
           <div className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-bold ${isOverdue ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-gray-200 text-gray-600'}`}>
             <Clock className="w-3 h-3" />
@@ -120,6 +125,11 @@ export default function KitchenDisplay() {
                 <span className="font-black text-meza-primary text-lg w-6 text-right">{item.quantity}x</span>
                 <div className="flex flex-col">
                   <span className="font-bold text-gray-800 text-lg leading-tight">{item.nameAtSale}</span>
+                  {item.modifiers && item.modifiers.length > 0 && (
+                    <div className="text-sm text-gray-600 font-bold mt-0.5 leading-tight">
+                      {item.modifiers.map(m => `+ ${m.name}`).join(', ')}
+                    </div>
+                  )}
                   {item.note && <span className="text-sm font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded mt-1 break-words">"{item.note}"</span>}
                 </div>
               </li>

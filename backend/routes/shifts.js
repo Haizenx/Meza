@@ -93,9 +93,17 @@ router.get('/:id/analytics', authenticate, async (req, res) => {
     orders.forEach(order => {
       totalSales += order.total;
       const pm = (order.paymentMethod || '').toLowerCase();
-      if (pm === 'cash') cashSales += order.total;
-      else if (pm === 'card') cardSales += order.total;
-      else if (pm === 'gcash') gcashSales += order.total;
+      if (pm === 'split' && Array.isArray(order.splitPayments)) {
+        order.splitPayments.forEach(p => {
+          if (p.method === 'cash') cashSales += p.amount;
+          else if (p.method === 'card') cardSales += p.amount;
+          else if (p.method === 'gcash') gcashSales += p.amount;
+        });
+      } else {
+        if (pm === 'cash') cashSales += order.total;
+        else if (pm === 'card') cardSales += order.total;
+        else if (pm === 'gcash') gcashSales += order.total;
+      }
 
       order.items.forEach(item => {
         const itemName = item.nameAtSale || (item.menuItemId ? item.menuItemId.name : 'Unknown Item');

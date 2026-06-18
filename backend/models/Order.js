@@ -7,15 +7,24 @@ const orderSchema = new mongoose.Schema({
     nameAtSale: { type: String },
     priceAtSale: { type: Number },
     quantity: { type: Number },
-    note: { type: String }
+    note: { type: String },
+    modifiers: [{
+      name: { type: String },
+      price: { type: Number }
+    }]
   }],
   subtotal: { type: Number, required: true },             // server-computed
   discountAmount: { type: Number, default: 0 },
   discountApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   total: { type: Number, required: true },                // server-computed
-  paymentMethod: { type: String, enum: ['cash', 'gcash', 'card', 'online'], required: true },
+  paymentMethod: { type: String, enum: ['cash', 'gcash', 'card', 'online', 'split'], required: true },
+  splitPayments: [{
+    method: { type: String, enum: ['cash', 'gcash', 'card', 'online'] },
+    amount: { type: Number }
+  }],
   cashTendered: { type: Number },
   changeDue: { type: Number },
+  customerName: { type: String },
   cashierId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Not required for QR
   shiftId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shift' }, 
   orderType: { type: String, enum: ['pos', 'qr'], default: 'pos' },

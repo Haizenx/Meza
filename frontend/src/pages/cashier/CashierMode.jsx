@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { openDB } from 'idb';
 import { io } from 'socket.io-client';
 import ProfileModal from '../../components/ProfileModal';
+import ReceiptPrinter from '../../components/ReceiptPrinter';
 
 export default function CashierMode() {
   const { user, logout, token } = useAuth();
@@ -44,6 +45,13 @@ export default function CashierMode() {
   const [pinInput, setPinInput] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // New Feature States
+  const [modifierModal, setModifierModal] = useState({ isOpen: false, item: null, selectedModifiers: [] });
+  const [splitPaymentModal, setSplitPaymentModal] = useState({ isOpen: false });
+  const [customerName, setCustomerName] = useState('');
+  const [splitPayments, setSplitPayments] = useState([]); // Array of { method, amount }
+  const [printOrder, setPrintOrder] = useState(null);
 
   // Initialize DB and Sync Loop
   useEffect(() => {
@@ -233,18 +241,15 @@ export default function CashierMode() {
     checkPendingCount();
   };
 
-  // --- LOCAL PRINT MOCK ---
-  const printReceipt = async (order) => {
-    try {
-      await fetch('http://localhost:8080/print', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(order)
-      });
-      console.log('Print job sent successfully');
-    } catch (err) {
-      console.warn('Local print service not reachable. Simulating print success for fallback.');
-    }
+  // --- PRINT LOGIC ---
+  const printReceipt = (order) => {
+    // Add full cart to order for correct pricing logic in printer
+    const printableOrder = { ...order, total: total, cart: cart };
+    setPrintOrder(printableOrder);
+    // Wait for state to render, then trigger print
+    setTimeout(() => {
+      window.print();
+    }, 100);
   };
 
   // --- EFFICIENCY HELPERS ---
@@ -258,7 +263,9 @@ export default function CashierMode() {
 
   const holdCurrentOrder = () => {
     if (cart.length === 0) return;
-    setHeldOrders(prev => [...prev, { id: Date.now(), cart, discountAmount, time: new Date() }]);
+    const tabName = window.prompt('Enter a name for this tab:');
+    if (tabName === null) return; // User cancelled
+    setHeldOrders(prev => [...prev, { id: Date.now(), name: tabName || 'Guest', cart, discountAmount, time: new Date() }]);
     setCart([]);
     setDiscountAmount(0);
     showToast('Order placed on hold.', 'info');
@@ -323,9 +330,11 @@ export default function CashierMode() {
     const orderPayload = {
       localUUID,
       shiftId: currentShift?._id,
-      items: cart.map(i => ({ menuItemId: i._id, quantity: i.quantity, note: i.note || '' })),
+      items: cart.map(i => ({ menuItemId: i._id, quantity: i.quantity, note: i.note || '', modifiers: i.modifiers || [] })),
       paymentMethod,
+      splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashTendered: paymentMethod === 'cash' ? parseFloat(cashTendered || 0) : 0,
+      customerName,
       createdAtLocal: new Date().toISOString()
     };
 
@@ -382,19 +391,32 @@ export default function CashierMode() {
   };
 
   // --- CART LOGIC ---
-  const addToCart = (item, e) => {
+  const handleItemClick = (item, e) => {
+    if (!item.isAvailable || item.calculatedStock === 0) return;
+    if (item.modifierGroups && item.modifierGroups.length > 0) {
+      setModifierModal({ isOpen: true, item, selectedModifiers: [] });
+    } else {
+      addToCart(item, [], e);
+    }
+  };
+
+  const addToCart = (item, modifiers = [], e = null) => {
     if (!item.isAvailable || item.calculatedStock === 0) return;
 
-    const existing = cart.find(c => c._id === item._id);
-    const currentQty = existing ? existing.quantity : 0;
+    // Cart items are uniquely identified by item ID + sorted modifiers
+    const modifiersHash = modifiers.map(m => m.name).sort().join(',');
+    const cartItemId = `${item._id}_${modifiersHash}`;
+
+    const existing = cart.find(c => c.cartItemId === cartItemId);
+    const totalItemQty = cart.filter(c => c._id === item._id).reduce((sum, c) => sum + c.quantity, 0);
     
     // Smart Stock Validation
-    if (item.calculatedStock !== null && item.calculatedStock !== undefined && currentQty >= item.calculatedStock) {
+    if (item.calculatedStock !== null && item.calculatedStock !== undefined && totalItemQty >= item.calculatedStock) {
       showToast(`Cannot add more. Only ${item.calculatedStock} in stock!`, 'warning');
       return;
     }
 
-    if (e) {
+    if (e && e.currentTarget) {
       const rect = e.currentTarget.getBoundingClientRect();
       const newEffect = { id: Date.now(), x: e.clientX - rect.left, y: e.clientY - rect.top };
       setClickEffects(prev => [...prev, newEffect]);
@@ -405,15 +427,15 @@ export default function CashierMode() {
     setTimeout(() => setCartPulse(false), 300);
 
     if (existing) {
-      setCart(cart.map(c => c._id === item._id ? { ...c, quantity: c.quantity + 1 } : c));
+      setCart(cart.map(c => c.cartItemId === cartItemId ? { ...c, quantity: c.quantity + 1 } : c));
     } else {
-      setCart([...cart, { ...item, quantity: 1, note: '' }]);
+      setCart([...cart, { ...item, cartItemId, quantity: 1, note: '', modifiers }]);
     }
   };
 
-  const updateCartItem = (id, delta, note = undefined) => {
+  const updateCartItem = (cartItemId, delta, note = undefined) => {
     setCart(cart.map(item => {
-      if (item._id === id) {
+      if (item.cartItemId === cartItemId) {
         const newQ = item.quantity + delta;
         return newQ > 0 ? { ...item, quantity: newQ, note: note !== undefined ? note : item.note } : item;
       }
@@ -421,7 +443,7 @@ export default function CashierMode() {
     }));
   };
 
-  const removeFromCart = (id) => setCart(cart.filter(i => i._id !== id));
+  const removeFromCart = (cartItemId) => setCart(cart.filter(item => item.cartItemId !== cartItemId));
 
   // --- SHIFT LOGIC ---
   const handleStartShift = async (e) => {
@@ -460,12 +482,23 @@ export default function CashierMode() {
     i.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
   
-  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const subtotal = cart.reduce((sum, item) => {
+    const itemModSum = (item.modifiers || []).reduce((mSum, m) => mSum + (m.price || 0), 0);
+    return sum + ((item.price + itemModSum) * item.quantity);
+  }, 0);
   const total = Math.max(0, subtotal - discountAmount);
-  const changeDue = paymentMethod === 'cash' && cashTendered ? Math.max(0, parseFloat(cashTendered) - total) : 0;
+  
+  let changeDue = 0;
+  if (paymentMethod === 'cash' && cashTendered >= total) {
+    changeDue = Math.max(0, parseFloat(cashTendered) - total);
+  } else if (paymentMethod === 'split') {
+    const splitTotal = splitPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    if (splitTotal >= total) changeDue = Math.max(0, splitTotal - total);
+  }
 
   return (
-    <div className="flex h-screen bg-[#f4f1eb] font-sans antialiased relative overflow-hidden">
+    <>
+    <div className="flex h-screen bg-[#f4f1eb] font-sans antialiased relative overflow-hidden print:hidden">
       
       {/* Click Effects */}
       {clickEffects.map(ce => (
@@ -507,6 +540,61 @@ export default function CashierMode() {
               <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">End Shift</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* MODIFIER MODAL */}
+      {modifierModal.isOpen && modifierModal.item && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-gray-900 p-4 text-white text-center">
+              <h3 className="font-black text-xl tracking-wider uppercase">Customize {modifierModal.item.name}</h3>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto">
+              {(modifierModal.item.modifierGroups || []).map((group, gIdx) => (
+                <div key={gIdx} className="mb-6 last:mb-0">
+                  <h4 className="font-bold text-gray-800 uppercase tracking-widest text-sm mb-3 border-b pb-2">{group.name} {group.multiSelect ? '(Choose multiple)' : '(Choose one)'}</h4>
+                  <div className="space-y-2">
+                    {group.options.map((opt, oIdx) => {
+                      const isSelected = modifierModal.selectedModifiers.some(m => m.name === opt.name);
+                      return (
+                        <div 
+                          key={oIdx} 
+                          onClick={() => {
+                            let newMods = [...modifierModal.selectedModifiers];
+                            if (isSelected) {
+                              newMods = newMods.filter(m => m.name !== opt.name);
+                            } else {
+                              if (!group.multiSelect) {
+                                const groupOptNames = group.options.map(o => o.name);
+                                newMods = newMods.filter(m => !groupOptNames.includes(m.name));
+                              }
+                              newMods.push(opt);
+                            }
+                            setModifierModal(prev => ({ ...prev, selectedModifiers: newMods }));
+                          }}
+                          className={`flex justify-between items-center p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-meza-primary bg-meza-primary/10' : 'border-gray-200 hover:border-meza-primary/50'}`}
+                        >
+                          <span className="font-bold text-gray-800">{opt.name}</span>
+                          <span className="font-bold text-gray-500">{opt.price > 0 ? `+₱${opt.price}` : 'Free'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 bg-gray-50 border-t grid grid-cols-2 gap-3">
+              <button onClick={() => setModifierModal({ isOpen: false, item: null, selectedModifiers: [] })} className="py-3 font-bold text-gray-600 bg-gray-200 rounded-xl uppercase tracking-wider">Cancel</button>
+              <button 
+                onClick={() => {
+                  addToCart(modifierModal.item, modifierModal.selectedModifiers);
+                  setModifierModal({ isOpen: false, item: null, selectedModifiers: [] });
+                }} 
+                className="py-3 font-bold text-white bg-meza-primary rounded-xl uppercase tracking-wider shadow-md"
+              >Add to Cart</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -668,17 +756,25 @@ export default function CashierMode() {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map(item => (
-                <div key={item._id} className="bg-white border border-gray-100 rounded-lg p-3 shadow-sm group">
+                <div key={item.cartItemId} className="bg-white border border-gray-100 rounded-lg p-3 shadow-sm group">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex-1 pr-2"><h4 className="font-bold text-meza-text text-sm leading-tight line-clamp-2">{item.name}</h4><p className="text-xs text-gray-500 font-bold mt-1">₱{item.price.toFixed(2)}</p></div>
-                    <div className="flex items-center space-x-2 bg-gray-50 rounded-lg p-1 border border-gray-100 shrink-0">
-                      <button onClick={() => updateCartItem(item._id, -1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">-</button>
-                      <span className="w-5 text-center font-bold text-sm text-meza-text">{item.quantity}</span>
-                      <button onClick={() => updateCartItem(item._id, 1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">+</button>
+                    <div className="flex-1 pr-2">
+                      <h4 className="font-bold text-meza-text text-sm leading-tight line-clamp-2">{item.name}</h4>
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div className="text-[10px] text-gray-500 font-medium leading-tight mt-0.5">
+                          {item.modifiers.map(m => `+ ${m.name}`).join(', ')}
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 font-bold mt-1">₱{((item.price) + (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0)).toFixed(2)}</p>
                     </div>
-                    <button onClick={() => removeFromCart(item._id)} className="ml-3 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                    <div className="flex items-center space-x-2 bg-gray-50 rounded-lg p-1 border border-gray-100 shrink-0">
+                      <button onClick={() => updateCartItem(item.cartItemId, -1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">-</button>
+                      <span className="w-5 text-center font-bold text-sm text-meza-text">{item.quantity}</span>
+                      <button onClick={() => updateCartItem(item.cartItemId, 1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">+</button>
+                    </div>
+                    <button onClick={() => removeFromCart(item.cartItemId)} className="ml-3 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                   </div>
-                  <input type="text" placeholder="Add note..." value={item.note || ''} onChange={e => updateCartItem(item._id, 0, e.target.value)} className="w-full text-[10px] bg-gray-50 border border-gray-100 rounded px-2 py-1 outline-none focus:border-meza-primary text-gray-600 italic" />
+                  <input type="text" placeholder="Add note..." value={item.note || ''} onChange={e => updateCartItem(item.cartItemId, 0, e.target.value)} className="w-full text-[10px] bg-gray-50 border border-gray-100 rounded px-2 py-1 outline-none focus:border-meza-primary text-gray-600 italic" />
                 </div>
               ))}
             </div>
@@ -837,30 +933,79 @@ export default function CashierMode() {
                 <h2 className="text-5xl font-black text-meza-text tracking-tight mt-1">₱{total.toFixed(2)}</h2>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <button onClick={() => setPaymentMethod('cash')} className={`py-4 rounded-xl flex flex-col items-center justify-center space-y-2 border-2 transition-all cursor-pointer ${paymentMethod === 'cash' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><Banknote className="w-6 h-6" /><span className="font-bold text-sm">Cash</span></button>
-                <button onClick={() => setPaymentMethod('card')} className={`py-4 rounded-xl flex flex-col items-center justify-center space-y-2 border-2 transition-all cursor-pointer ${paymentMethod === 'card' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><CreditCard className="w-6 h-6" /><span className="font-bold text-sm">Card/GCash</span></button>
+              <div className="mb-4">
+                <input type="text" placeholder="Customer Name (Optional)" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 outline-none focus:border-meza-primary font-medium" />
               </div>
 
-              {paymentMethod === 'cash' && (
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
-                    <div className="flex space-x-1">
-                      <button onClick={()=>setCashTendered(total.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">Exact</button>
-                      <button onClick={()=>setCashTendered('500')} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱500</button>
-                      <button onClick={()=>setCashTendered('1000')} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱1000</button>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <button onClick={() => setPaymentMethod('cash')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'cash' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><Banknote className="w-5 h-5" /><span className="font-bold text-xs">Cash</span></button>
+                <button onClick={() => setPaymentMethod('card')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'card' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><CreditCard className="w-5 h-5" /><span className="font-bold text-xs">Digital</span></button>
+                <button onClick={() => setPaymentMethod('split')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'split' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><span className="font-bold text-xs">Split</span></button>
+              </div>
+
+              {paymentMethod === 'cash' && (() => {
+                const nearest100 = Math.ceil(total / 100) * 100;
+                const nearest500 = Math.ceil(total / 500) * 500;
+                const nearest1000 = Math.ceil(total / 1000) * 1000;
+                const options = Array.from(new Set([nearest100, nearest500, nearest1000])).filter(v => v > total);
+                
+                return (
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
+                      <div className="flex space-x-1">
+                        <button onClick={()=>setCashTendered(total.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">Exact</button>
+                        {options.map(opt => (
+                          <button key={opt} onClick={()=>setCashTendered(opt.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱{opt}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <input autoFocus type="number" step="0.01" value={cashTendered} onChange={e=>setCashTendered(e.target.value)} className="w-full mt-1 text-2xl font-black text-meza-text bg-transparent outline-none border-b-2 border-gray-200 focus:border-meza-primary py-1" placeholder="0.00" />
+                    <div className="flex justify-between mt-3 text-sm font-bold">
+                      <span className="text-gray-500">Change Due:</span>
+                      <span className={changeDue > 0 ? 'text-green-600' : 'text-gray-400'}>₱{changeDue.toFixed(2)}</span>
                     </div>
                   </div>
-                  <input autoFocus type="number" step="0.01" value={cashTendered} onChange={e=>setCashTendered(e.target.value)} className="w-full mt-1 text-2xl font-black text-meza-text bg-transparent outline-none border-b-2 border-gray-200 focus:border-meza-primary py-1" placeholder="0.00" />
-                  <div className="flex justify-between mt-3 text-sm font-bold">
-                    <span className="text-gray-500">Change Due:</span>
-                    <span className={changeDue > 0 ? 'text-green-600' : 'text-gray-400'}>₱{changeDue.toFixed(2)}</span>
+                );
+              })()}
+
+              {paymentMethod === 'split' && (
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6 space-y-3">
+                  {['cash', 'gcash', 'card'].map(method => {
+                    const currentAmt = splitPayments.find(p => p.method === method)?.amount || '';
+                    return (
+                      <div key={method} className="flex justify-between items-center text-sm border-b border-gray-200 pb-2 last:border-0 last:pb-0">
+                        <span className="font-bold text-gray-600 capitalize">{method}</span>
+                        <input 
+                          type="number" 
+                          placeholder="0.00" 
+                          value={currentAmt}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            setSplitPayments(prev => {
+                              const filtered = prev.filter(p => p.method !== method);
+                              return isNaN(val) ? filtered : [...filtered, { method, amount: val }];
+                            });
+                          }}
+                          className="w-24 text-right font-bold text-lg bg-transparent outline-none focus:text-meza-primary" 
+                        />
+                      </div>
+                    );
+                  })}
+                  <div className="flex justify-between mt-3 text-sm font-bold border-t border-dashed border-gray-300 pt-3">
+                    <span className="text-gray-500">Total Tendered:</span>
+                    <span className={splitPayments.reduce((s,p)=>s+(p.amount||0),0) >= total ? 'text-green-600' : 'text-red-500'}>
+                      ₱{splitPayments.reduce((s,p)=>s+(p.amount||0),0).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )}
 
-              <button onClick={processCheckout} disabled={paymentMethod === 'cash' && (parseFloat(cashTendered||0) < total)} className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold uppercase tracking-wider text-sm shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer">
+              <button 
+                onClick={processCheckout} 
+                disabled={(paymentMethod === 'cash' && (parseFloat(cashTendered||0) < total)) || (paymentMethod === 'split' && splitPayments.reduce((s,p)=>s+(p.amount||0),0) < total)} 
+                className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold uppercase tracking-wider text-sm shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer"
+              >
                 <Printer className="w-5 h-5" />
                 <span>Confirm & Print</span>
               </button>
@@ -871,5 +1016,8 @@ export default function CashierMode() {
       
       <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
+    
+    <ReceiptPrinter order={printOrder} />
+    </>
   );
 }

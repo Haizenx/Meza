@@ -22,13 +22,13 @@ router.post('/', authenticate, [
   body('items').isArray({ min: 1 }).withMessage('Order must contain items'),
   body('items.*.menuItemId').isMongoId().withMessage('Valid menuItemId is required'),
   body('items.*.quantity').isInt({ gt: 0 }).withMessage('Quantity must be greater than 0'),
-  body('paymentMethod').isIn(['cash', 'gcash', 'card', 'online']).withMessage('Invalid payment method'),
+  body('paymentMethod').isIn(['cash', 'gcash', 'card', 'online', 'split']).withMessage('Invalid payment method'),
   body('cashTendered').optional().isNumeric(),
   body('shiftId').optional().isMongoId(),
   validate
 ], async (req, res) => {
   try {
-    const { localUUID, items, paymentMethod, cashTendered, shiftId } = req.body;
+    const { localUUID, items, paymentMethod, cashTendered, shiftId, customerName, splitPayments } = req.body;
 
     if (!localUUID) return res.status(400).json({ message: 'localUUID is required' });
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
@@ -52,15 +52,36 @@ router.post('/', authenticate, [
       const menuItem = await MenuItem.findById(item.menuItemId);
       if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
 
-      const itemTotal = menuItem.price * item.quantity;
+      let modifierSum = 0;
+      const verifiedModifiers = [];
+      
+      if (Array.isArray(item.modifiers)) {
+        item.modifiers.forEach(mod => {
+          let foundOption = null;
+          if (menuItem.modifierGroups) {
+            for (let group of menuItem.modifierGroups) {
+              const opt = group.options.find(o => o.name === mod.name);
+              if (opt) { foundOption = opt; break; }
+            }
+          }
+          if (foundOption) {
+            modifierSum += foundOption.price || 0;
+            verifiedModifiers.push({ name: foundOption.name, price: foundOption.price || 0 });
+          }
+        });
+      }
+
+      const itemFinalPrice = menuItem.price + modifierSum;
+      const itemTotal = itemFinalPrice * item.quantity;
       subtotal += itemTotal;
 
       processedItems.push({
         menuItemId: menuItem._id,
         nameAtSale: menuItem.name,
-        priceAtSale: menuItem.price, // Snapshotted at moment of sale
+        priceAtSale: itemFinalPrice, // Snapshotted at moment of sale (includes modifiers)
         quantity: item.quantity,
-        note: item.note
+        note: item.note,
+        modifiers: verifiedModifiers
       });
 
       // 2. Deduct Finished Goods Stock directly from MenuItem
@@ -119,7 +140,23 @@ router.post('/', authenticate, [
       }
     }
 
-    // 4. Save the Order
+    // We are no longer trusting client total.
+    // If you have a discount system, you should compute it here.
+    // For now, no discount is applied server-side.
+    const discountAmount = 0; 
+    const total = Math.max(0, subtotal - discountAmount);
+    
+    // Calculate Change
+    let changeDue = 0;
+    if (paymentMethod === 'cash' && cashTendered >= total) {
+      changeDue = cashTendered - total;
+    } else if (paymentMethod === 'split' && Array.isArray(splitPayments)) {
+      const totalTendered = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      if (totalTendered >= total) {
+        changeDue = totalTendered - total;
+      }
+    }
+
     const newOrder = new Order({
       localUUID,
       items: processedItems,
@@ -127,12 +164,14 @@ router.post('/', authenticate, [
       discountAmount,
       total,
       paymentMethod,
+      splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashTendered,
       changeDue,
+      customerName,
       cashierId: req.user.id,
       shiftId: shiftId,
       status: 'completed',
-      fulfillmentStatus: 'preparing'
+      fulfillmentStatus: 'pending'
     });
 
     await newOrder.save();

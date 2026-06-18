@@ -9,6 +9,14 @@ const menuItemSchema = new mongoose.Schema({
   isArchived: { type: Boolean, default: false },
   stockQuantity: { type: Number, default: 0 },
   lowStockThreshold: { type: Number, default: 5 },
+  modifierGroups: [{
+    name: { type: String, required: true },
+    multiSelect: { type: Boolean, default: false },
+    options: [{
+      name: { type: String, required: true },
+      price: { type: Number, default: 0 }
+    }]
+  }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
