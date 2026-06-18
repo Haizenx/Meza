@@ -535,13 +535,6 @@ export default function CashierMode() {
               <button onClick={() => navigate('/table/Kiosk')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 tap-scale">Ordering</button>
               <button onClick={() => navigate('/kds')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 tap-scale">KDS</button>
             </div>
-            
-            {/* Search */}
-            <div className="relative hidden md:block ml-4">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input id="pos-search" type="text" placeholder="Search menu (Cmd+F)..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-sm outline-none focus:border-meza-primary" />
-            </div>
-
           </div>
           
           <div className="flex items-center space-x-4 shrink-0">
@@ -557,17 +550,26 @@ export default function CashierMode() {
           </div>
         </header>
 
-        {/* Categories (Horizontal Scroll) */}
-        <div className="bg-white border-b border-gray-100 px-6 py-3 flex space-x-3 overflow-x-auto no-scrollbar shadow-sm">
-          {['All', ...new Set(menuItems.map(i => i.category))].map(cat => (
-            <button 
-              key={cat} 
-              onClick={() => setActiveCategory(cat)} 
-              className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-meza-text text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-            >
-              {cat}
-            </button>
-          ))}
+        {/* Top Action Bar (Search + Categories) */}
+        <div className="bg-white border-b border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center gap-4 shadow-sm z-10">
+          {/* Search */}
+          <div className="relative w-full sm:w-72 shrink-0">
+            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input id="pos-search" type="text" placeholder="Search menu (Cmd+F)..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold outline-none focus:border-meza-primary focus:bg-white transition-all shadow-inner" />
+          </div>
+
+          {/* Categories (Horizontal Scroll) */}
+          <div className="flex space-x-2 overflow-x-auto no-scrollbar w-full pb-1">
+            {['All', ...new Set(menuItems.map(i => i.category))].map(cat => (
+              <button 
+                key={cat} 
+                onClick={() => setActiveCategory(cat)} 
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 ${activeCategory === cat ? 'bg-meza-text text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Menu Grid */}
