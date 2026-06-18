@@ -83,19 +83,7 @@ export default function Login() {
           </div>
         )}
 
-        {deferredPrompt && (
-          <div className="mb-6">
-            <button 
-              onClick={handleInstallClick}
-              className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 py-3 rounded-xl font-bold tracking-wide transition-all flex items-center justify-center cursor-pointer shadow-sm"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Install Meza App
-            </button>
-          </div>
-        )}
+
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
@@ -138,6 +126,21 @@ export default function Login() {
           </button>
         </form>
       </div>
+
+      {/* Floating Install App Button */}
+      {deferredPrompt && (
+        <div className="absolute bottom-6 right-6 z-20">
+          <button 
+            onClick={handleInstallClick}
+            className="bg-white text-meza-text hover:text-meza-primary border border-gray-200 shadow-xl py-3 px-6 rounded-full font-bold tracking-wide transition-all flex items-center justify-center cursor-pointer hover:-translate-y-1 active:scale-95"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Install Meza App
+          </button>
+        </div>
+      )}
     </div>
   );
 }
