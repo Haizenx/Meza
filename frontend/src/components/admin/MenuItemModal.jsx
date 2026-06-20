@@ -5,6 +5,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Food');
   const [price, setPrice] = useState('');
+  const [description, setDescription] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   
@@ -20,6 +21,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setName(initialData.name || '');
         setCategory(initialData.category || 'Food');
         setPrice(initialData.price || '');
+        setDescription(initialData.description || '');
         setPhotoUrl(initialData.photoUrl || '');
         setIsAvailable(initialData.isAvailable !== false);
         setModifierGroups(initialData.modifierGroups || []);
@@ -46,6 +48,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setName('');
         setCategory('Food');
         setPrice('');
+        setDescription('');
         setPhotoUrl('');
         setIsAvailable(true);
         setIngredients([]);
@@ -129,7 +132,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         }));
 
       // 1. Save Menu Item
-      const menuPayload = { name, category, price: parseFloat(price), photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
+      const menuPayload = { name, category, price: parseFloat(price), description, photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
       const menuMethod = initialData ? 'PUT' : 'POST';
       const menuUrl = initialData 
         ? `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}`
@@ -242,6 +245,14 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
                         placeholder="https://..."
                       />
                     </div>
+                  </div>
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Description (for QR Menu)</label>
+                    <textarea 
+                      value={description} onChange={e => setDescription(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary font-semibold text-sm min-h-[80px] resize-y"
+                      placeholder="e.g. A classic espresso-based coffee beverage..."
+                    />
                   </div>
                 </div>
               </div>

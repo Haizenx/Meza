@@ -817,11 +817,15 @@ export default function CashierMode() {
                       <div className="flex-1 pr-2">
                         <h4 className="font-bold text-meza-text text-sm leading-tight line-clamp-2">{item.name}</h4>
                         {item.modifiers && item.modifiers.length > 0 && (
-                          <div className="text-[10px] text-gray-500 font-medium leading-tight mt-0.5">
-                            {item.modifiers.map(m => `+ ${m.name}`).join(', ')}
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {item.modifiers.map((m, mIdx) => (
+                              <span key={mIdx} className="bg-meza-primary/10 text-meza-primary border border-meza-primary/20 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none uppercase tracking-wider">
+                                + {m.name}
+                              </span>
+                            ))}
                           </div>
                         )}
-                        <p className="text-xs text-gray-500 font-bold mt-1">₱{((item.price) + (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0)).toFixed(2)}</p>
+                        <p className="text-xs text-gray-500 font-bold mt-1.5">₱{((item.price) + (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0)).toFixed(2)}</p>
                       </div>
                       <div className="flex items-center space-x-2 bg-gray-50 rounded-lg p-1 border border-gray-100 shrink-0">
                         <button onClick={() => updateCartItem(item.cartItemId, -1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">-</button>
@@ -989,9 +993,10 @@ export default function CashierMode() {
                   <h2 className="text-5xl font-black text-meza-text tracking-tight mt-1">₱{total.toFixed(2)}</h2>
                 </div>
 
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase ml-1 mb-1 block">Customer Name <span className="text-red-500">*</span></label>
-                  <input type="text" placeholder="Required for table / calling" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full text-base bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 font-bold" />
+                <div className="mb-4 bg-orange-50 p-3 rounded-xl border border-orange-100">
+                  <label className="text-xs font-black text-orange-800 uppercase ml-1 mb-1.5 block tracking-wider">Customer Name <span className="text-red-500">*</span></label>
+                  <input type="text" placeholder="e.g. John Doe" value={customerName} onChange={e => setCustomerName(e.target.value)} className={`w-full text-lg bg-white border-2 rounded-xl px-4 py-3 outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 font-bold transition-all ${!customerName.trim() ? 'border-orange-300 shadow-inner' : 'border-gray-200'}`} />
+                  {!customerName.trim() && <p className="text-[10px] text-orange-600 font-bold mt-1.5 ml-1">Required to identify the order</p>}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-4">

@@ -116,46 +116,46 @@ export default function KitchenDisplay() {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            className={`mb-4 bg-gray-800 rounded-xl overflow-hidden shadow-xl border border-gray-700/50 transition-all ${snapshot.isDragging ? 'ring-2 ring-meza-primary scale-[1.02] rotate-1' : ''} ${isOverdue ? 'ring-1 ring-red-500/50' : ''}`}
+            className={`mb-4 bg-white rounded-2xl overflow-hidden shadow-[0_2px_15px_rgb(0,0,0,0.04)] border transition-all ${snapshot.isDragging ? 'ring-4 ring-meza-primary/30 scale-[1.02] rotate-1 border-meza-primary' : 'border-gray-100'} ${isOverdue && !snapshot.isDragging ? 'ring-2 ring-red-500/50 border-red-200' : ''}`}
           >
-            <div className={`p-3 flex justify-between items-center border-b border-gray-700/50 ${isOverdue ? 'bg-red-500/10' : 'bg-gray-800/80'}`}>
+            <div className={`p-3.5 flex justify-between items-center border-b ${isOverdue ? 'bg-red-50 border-red-100' : 'bg-gray-50/50 border-gray-100'}`}>
               <div className="flex items-center space-x-3">
-                <GripVertical className="w-5 h-5 text-gray-500 cursor-grab" />
-                <span className="font-black text-white text-lg tracking-wider">#{order._id.slice(-4).toUpperCase()}</span>
+                <GripVertical className="w-5 h-5 text-gray-300 cursor-grab" />
+                <span className="font-black text-meza-text text-lg tracking-wider">#{order._id.slice(-4).toUpperCase()}</span>
                 {order.tableNumber && (
-                  <span className="bg-meza-primary/20 text-meza-primary border border-meza-primary/30 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">
+                  <span className="bg-meza-primary/10 text-meza-primary border border-meza-primary/20 px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-widest">
                     Table {order.tableNumber}
                   </span>
                 )}
                 {order.customerName && (
-                  <span className="bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider">
+                  <span className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded text-[11px] font-black uppercase tracking-widest">
                     {order.customerName}
                   </span>
                 )}
               </div>
-              <div className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-bold shadow-inner ${isOverdue ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-700 text-gray-300'}`}>
+              <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isOverdue ? 'bg-red-500 text-white animate-pulse shadow-md' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
                 <Clock className="w-3.5 h-3.5" />
                 <span>{elapsed}m</span>
               </div>
             </div>
             
-            <div className="p-4 bg-gray-800/50">
-              <ul className="space-y-3">
+            <div className="p-4 bg-white">
+              <ul className="space-y-4">
                 {order.items.map((item, idx) => (
                   <li key={idx} className="flex items-start space-x-3 group">
-                    <span className="font-black text-meza-primary text-xl w-8 text-right bg-gray-900/50 py-1 rounded-lg border border-gray-700/50">{item.quantity}x</span>
+                    <span className="font-black text-meza-primary text-xl w-8 text-right bg-meza-primary/5 py-1 rounded-xl border border-meza-primary/10">{item.quantity}x</span>
                     <div className="flex flex-col flex-1 pt-1">
-                      <span className="font-bold text-gray-100 text-lg leading-tight group-hover:text-white transition-colors">{item.nameAtSale}</span>
+                      <span className="font-bold text-meza-text text-lg leading-tight transition-colors">{item.nameAtSale}</span>
                       {item.modifiers && item.modifiers.length > 0 && (
-                        <div className="text-sm text-gray-400 font-medium mt-1 leading-tight flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1.5 mt-2">
                           {item.modifiers.map((m, i) => (
-                            <span key={i} className="bg-gray-700/50 px-2 py-0.5 rounded-md border border-gray-600/50">+ {m.name}</span>
+                            <span key={i} className="bg-blue-50 text-blue-700 px-2 py-1 rounded-lg border border-blue-100 text-[11px] font-bold uppercase tracking-wider leading-none shadow-sm">+ {m.name}</span>
                           ))}
                         </div>
                       )}
                       {item.note && (
-                        <div className="mt-2 bg-red-900/20 border border-red-500/20 p-2 rounded-lg">
-                          <span className="text-sm font-semibold text-red-400 italic">"{item.note}"</span>
+                        <div className="mt-2 bg-red-50 border border-red-100 p-2.5 rounded-xl">
+                          <span className="text-sm font-bold text-red-600 italic">Note: "{item.note}"</span>
                         </div>
                       )}
                     </div>
@@ -165,15 +165,15 @@ export default function KitchenDisplay() {
             </div>
 
             {/* Quick Action Button for non-drag users */}
-            <div className="flex bg-gray-900/50 divide-x divide-gray-700/50 border-t border-gray-700/50">
+            <div className="flex bg-gray-50 divide-x divide-gray-100 border-t border-gray-100">
                {order.fulfillmentStatus === 'pending' && (
-                <button onClick={() => updateStatus(order._id, 'preparing')} className="flex-1 py-3 text-sm font-bold text-blue-400 hover:bg-blue-500/10 hover:text-blue-300 transition-colors uppercase tracking-wider">Start Preparing</button>
+                <button onClick={() => updateStatus(order._id, 'preparing')} className="flex-1 py-3.5 text-xs font-black text-blue-600 hover:bg-blue-50 transition-colors uppercase tracking-widest">Start Preparing</button>
                )}
                {order.fulfillmentStatus === 'preparing' && (
-                <button onClick={() => updateStatus(order._id, 'ready')} className="flex-1 py-3 text-sm font-bold text-green-400 hover:bg-green-500/10 hover:text-green-300 transition-colors uppercase tracking-wider">Mark Ready</button>
+                <button onClick={() => updateStatus(order._id, 'ready')} className="flex-1 py-3.5 text-xs font-black text-green-600 hover:bg-green-50 transition-colors uppercase tracking-widest">Mark Ready</button>
                )}
                {order.fulfillmentStatus === 'ready' && (
-                <button onClick={() => updateStatus(order._id, 'served')} className="flex-1 py-3 text-sm font-bold text-gray-400 hover:bg-gray-700/50 hover:text-white transition-colors uppercase tracking-wider">Mark Served</button>
+                <button onClick={() => updateStatus(order._id, 'served')} className="flex-1 py-3.5 text-xs font-black text-gray-500 hover:bg-gray-200 transition-colors uppercase tracking-widest">Mark Served</button>
                )}
             </div>
           </div>
@@ -183,25 +183,25 @@ export default function KitchenDisplay() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f172a] flex flex-col font-sans text-gray-100 selection:bg-meza-primary/30 selection:text-white">
-      {/* Premium Dark Header */}
-      <header className="bg-gray-900/80 backdrop-blur-xl border-b border-gray-800 p-4 flex justify-between items-center sticky top-0 z-20">
+    <div className="min-h-screen bg-[#f4f1eb] flex flex-col font-sans text-meza-text selection:bg-meza-primary/30 selection:text-meza-text">
+      {/* Premium Light Header */}
+      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
         <div className="flex items-center space-x-4">
           <div className="bg-gradient-to-br from-meza-primary to-orange-500 p-2.5 rounded-xl shadow-lg shadow-meza-primary/20">
             <UtensilsCrossed className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-white">meza<span className="text-meza-primary">.</span> KDS</h1>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mt-0.5">Kitchen Display System</p>
+            <h1 className="text-2xl font-black tracking-tight text-meza-text">meza<span className="text-meza-primary">.</span> KDS</h1>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-0.5">Kitchen Display System</p>
           </div>
         </div>
         <div className="flex items-center space-x-6">
-          <div className="flex bg-gray-950 p-1 rounded-xl border border-gray-800 shadow-inner hidden md:flex">
-            <button onClick={() => navigate('/cashier')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 transition-colors">Cashier</button>
-            <button onClick={() => navigate('/table/Kiosk')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-400 hover:text-gray-200 transition-colors">Ordering</button>
-            <button className="px-5 py-2 rounded-lg bg-gray-800 shadow-sm border border-gray-700 text-sm font-bold text-white">KDS</button>
+          <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shadow-inner hidden md:flex">
+            <button onClick={() => navigate('/cashier')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">Cashier</button>
+            <button onClick={() => navigate('/table/Kiosk')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">Ordering</button>
+            <button className="px-5 py-2 rounded-lg bg-white shadow-sm border border-gray-200 text-sm font-black text-meza-text">KDS</button>
           </div>
-          <div className="flex items-center space-x-2 bg-green-500/10 border border-green-500/20 px-4 py-2 rounded-full text-sm font-bold text-green-400">
+          <div className="flex items-center space-x-2 bg-green-50 border border-green-200 px-4 py-2 rounded-full text-sm font-bold text-green-700 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
             <span>Live Sync</span>
           </div>
@@ -210,7 +210,7 @@ export default function KitchenDisplay() {
 
       {/* Board */}
       <DragDropContext onDragEnd={onDragEnd}>
-        <div className="flex-1 p-6 flex gap-6 overflow-x-auto overflow-y-hidden bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-gray-800/20 via-transparent to-transparent">
+        <div className="flex-1 p-6 flex gap-6 overflow-x-auto overflow-y-hidden">
           {Object.values(columns).map(col => {
             const items = groupedOrders[col.id];
             const Icon = col.icon;
@@ -218,14 +218,14 @@ export default function KitchenDisplay() {
             return (
               <div key={col.id} className="flex-1 min-w-[350px] max-w-lg flex flex-col">
                 {/* Column Header */}
-                <div className={`mb-4 p-4 rounded-2xl bg-gray-900/60 backdrop-blur-md border border-gray-800 shadow-lg flex items-center justify-between`}>
+                <div className={`mb-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-between`}>
                   <div className="flex items-center space-x-3">
                     <div className={`p-2 rounded-lg ${col.bg} border ${col.color}`}>
-                      <Icon className="w-5 h-5 text-gray-300" />
+                      <Icon className={`w-5 h-5 ${col.id === 'pending' ? 'text-yellow-600' : col.id === 'preparing' ? 'text-blue-600' : 'text-green-600'}`} />
                     </div>
-                    <h2 className="font-black text-gray-200 uppercase tracking-widest text-sm">{col.title}</h2>
+                    <h2 className="font-black text-meza-text uppercase tracking-widest text-sm">{col.title}</h2>
                   </div>
-                  <span className="bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1 rounded-full text-xs font-black">
+                  <span className="bg-gray-100 border border-gray-200 text-gray-600 px-3 py-1 rounded-full text-xs font-black">
                     {items.length}
                   </span>
                 </div>
@@ -236,16 +236,16 @@ export default function KitchenDisplay() {
                     <div 
                       ref={provided.innerRef}
                       {...provided.droppableProps}
-                      className={`flex-1 rounded-2xl p-2 transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver ? 'bg-gray-800/40 border-2 border-dashed border-gray-600' : 'bg-transparent border-2 border-transparent'}`}
+                      className={`flex-1 rounded-2xl p-2 transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver ? 'bg-meza-primary/5 border-2 border-dashed border-meza-primary/30' : 'bg-transparent border-2 border-transparent'}`}
                     >
                       {items.map((order, idx) => (
                         <OrderCard key={order._id} order={order} index={idx} />
                       ))}
                       {provided.placeholder}
                       {items.length === 0 && !snapshot.isDraggingOver && (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-50">
-                          <Icon className="w-12 h-12 mb-3" />
-                          <p className="font-bold text-sm uppercase tracking-widest">No Orders</p>
+                        <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-70">
+                          <Icon className="w-12 h-12 mb-3 text-gray-300" />
+                          <p className="font-black text-sm uppercase tracking-widest text-gray-400">No Orders</p>
                         </div>
                       )}
                     </div>

@@ -12,6 +12,7 @@ export default function QRMenu() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('online');
+  const [customerName, setCustomerName] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(null);
 
@@ -65,6 +66,7 @@ export default function QRMenu() {
         items: cart.map(i => ({ menuItemId: i._id, quantity: i.quantity, note: i.note || '' })),
         paymentMethod: isPaidOnline ? 'online' : 'cash', // 'cash' means pay at counter later
         isPaidOnline,
+        customerName: customerName.trim(),
         tableNumber
       };
 
@@ -168,6 +170,20 @@ export default function QRMenu() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Your Details</h2>
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-meza-text uppercase tracking-widest ml-1">Name <span className="text-red-500">*</span></label>
+              <input 
+                type="text" 
+                placeholder="Required for identifying your order" 
+                value={customerName} 
+                onChange={e => setCustomerName(e.target.value)} 
+                className={`w-full bg-gray-50 border-2 rounded-xl px-4 py-3 outline-none focus:border-meza-primary font-bold transition-colors ${!customerName.trim() ? 'border-orange-200' : 'border-gray-100'}`} 
+              />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
             <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Payment Method</h2>
             <div className="grid gap-3">
               <button 
@@ -191,7 +207,7 @@ export default function QRMenu() {
         <div className="bg-white border-t border-gray-200 p-4 pb-8 sticky bottom-0">
           <button 
             onClick={submitOrder} 
-            disabled={isProcessing}
+            disabled={isProcessing || !customerName.trim()}
             className="w-full max-w-md mx-auto block py-4 bg-meza-text hover:bg-black text-white rounded-2xl font-bold tracking-wider uppercase shadow-xl transition-transform active:scale-95 disabled:opacity-50"
           >
             {isProcessing ? 'Processing...' : `Place Order • ₱${total.toFixed(2)}`}
@@ -240,28 +256,43 @@ export default function QRMenu() {
           {filteredMenu.map(item => {
             const inCart = cart.find(c => c._id === item._id);
             return (
-              <div key={item._id} className="bg-white rounded-2xl p-4 shadow-[0_2px_10px_rgb(0,0,0,0.03)] border border-gray-100 flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400">
-                    {item.category === 'Drinks' ? <Coffee className="w-6 h-6"/> : item.category === 'Food' ? <UtensilsCrossed className="w-6 h-6"/> : <Croissant className="w-6 h-6"/>}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-meza-text">{item.name}</h3>
-                    <p className="font-black text-meza-primary">₱{item.price.toFixed(2)}</p>
-                  </div>
-                </div>
-                
-                {inCart ? (
-                  <div className="flex items-center space-x-3 bg-gray-50 rounded-xl p-1.5 border border-gray-100">
-                    <button onClick={() => updateQuantity(item._id, -1)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm font-bold">-</button>
-                    <span className="w-4 text-center font-bold text-sm text-meza-text">{inCart.quantity}</span>
-                    <button onClick={() => updateQuantity(item._id, 1)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-meza-primary text-white shadow-sm font-bold">+</button>
+              <div key={item._id} className="bg-white rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col transition-transform hover:scale-[1.01]">
+                {/* Image Section */}
+                {item.photoUrl ? (
+                  <div className="w-full h-40 bg-gray-100 overflow-hidden relative group">
+                    <img src={item.photoUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    {item.category === 'Drinks' ? <Coffee className="w-5 h-5 absolute top-3 right-3 text-white drop-shadow-md opacity-80"/> : item.category === 'Food' ? <UtensilsCrossed className="w-5 h-5 absolute top-3 right-3 text-white drop-shadow-md opacity-80"/> : <Croissant className="w-5 h-5 absolute top-3 right-3 text-white drop-shadow-md opacity-80"/>}
                   </div>
                 ) : (
-                  <button onClick={() => addToCart(item)} className="w-10 h-10 bg-gray-50 hover:bg-meza-primary hover:text-white rounded-xl flex items-center justify-center transition-colors text-gray-500 font-bold">
-                    <Plus className="w-5 h-5" />
-                  </button>
+                  <div className="w-full h-28 bg-gray-50 flex items-center justify-center text-gray-300">
+                    {item.category === 'Drinks' ? <Coffee className="w-8 h-8"/> : item.category === 'Food' ? <UtensilsCrossed className="w-8 h-8"/> : <Croissant className="w-8 h-8"/>}
+                  </div>
                 )}
+                
+                {/* Content Section */}
+                <div className="p-4 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="font-black text-meza-text text-lg leading-tight">{item.name}</h3>
+                    {item.description && <p className="text-xs text-gray-500 font-medium mt-1.5 leading-snug line-clamp-2">{item.description}</p>}
+                  </div>
+                  
+                  <div className="mt-4 flex justify-between items-center pt-3 border-t border-gray-50">
+                    <p className="font-black text-meza-text text-lg tracking-tight">₱{item.price.toFixed(2)}</p>
+                    
+                    {inCart ? (
+                      <div className="flex items-center space-x-3 bg-gray-50 rounded-xl p-1 border border-gray-100 shadow-inner">
+                        <button onClick={() => updateQuantity(item._id, -1)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-white shadow-sm font-black text-meza-text">-</button>
+                        <span className="w-4 text-center font-black text-sm text-meza-text">{inCart.quantity}</span>
+                        <button onClick={() => updateQuantity(item._id, 1)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-meza-primary text-white shadow-md font-black">+</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => addToCart(item)} className="px-4 py-2 bg-gray-50 hover:bg-meza-text hover:text-white rounded-xl flex items-center space-x-1 transition-all text-meza-text font-bold shadow-sm">
+                        <Plus className="w-4 h-4" />
+                        <span className="text-xs uppercase tracking-wider">Add</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })}
