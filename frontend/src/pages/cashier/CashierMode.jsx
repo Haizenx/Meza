@@ -228,10 +228,17 @@ export default function CashierMode() {
 
         if (res.ok) {
           await db.delete('pendingOrders', order.localUUID);
-        } else if (res.status >= 400 && res.status < 500) {
-          // Bad request (validation failed), don't retry forever. Mark failed or delete.
-          await db.delete('pendingOrders', order.localUUID);
-          console.error(`Order ${order.localUUID} rejected by server:`, await res.text());
+        } else {
+          const errorText = await res.text();
+          console.error(`Order ${order.localUUID} rejected by server:`, errorText);
+          showToast(`Order failed to sync: ${errorText}`, 'error');
+          // Still delete it if it's a 4xx error so it doesn't loop forever
+          if (res.status >= 400 && res.status < 500) {
+            await db.delete('pendingOrders', order.localUUID);
+          } else {
+            order.retryCount += 1;
+            await db.put('pendingOrders', order);
+          }
         }
       } catch (err) {
         // Network error during flush, increment retry
