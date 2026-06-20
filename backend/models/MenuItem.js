@@ -22,9 +22,8 @@ const menuItemSchema = new mongoose.Schema({
 });
 
 // Update updatedAt on save
-menuItemSchema.pre('save', function(next) {
+menuItemSchema.pre('save', function() {
   this.updatedAt = Date.now();
-  next();
 });
 
 module.exports = mongoose.model('MenuItem', menuItemSchema);

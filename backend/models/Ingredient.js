@@ -11,9 +11,8 @@ const ingredientSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-ingredientSchema.pre('save', function(next) {
+ingredientSchema.pre('save', function() {
   this.updatedAt = Date.now();
-  next();
 });
 
 module.exports = mongoose.model('Ingredient', ingredientSchema);

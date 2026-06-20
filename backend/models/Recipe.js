@@ -12,9 +12,8 @@ const recipeSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-recipeSchema.pre('save', function(next) {
+recipeSchema.pre('save', function() {
   this.updatedAt = Date.now();
-  next();
 });
 
 module.exports = mongoose.model('Recipe', recipeSchema);
