@@ -347,7 +347,11 @@ export default function ShiftHistory() {
                                 <td className="px-4 py-3 font-medium text-gray-500">{new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
                                 <td className="px-4 py-3 font-bold text-gray-700">#{order._id.slice(-4).toUpperCase()}</td>
                                 <td className="px-4 py-3 text-gray-600 text-xs">
-                                  {order.items.map(i => `${i.quantity}x ${i.nameAtSale}`).join(', ')}
+                                  {order.items.map(i => (
+                                    <div key={i._id || i.menuItemId}>
+                                      {i.quantity}x {i.nameAtSale} - ₱{((i.priceAtSale || 0) * (i.quantity || 1)).toFixed(2)}
+                                    </div>
+                                  ))}
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${order.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
