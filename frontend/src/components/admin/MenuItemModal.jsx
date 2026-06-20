@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Beaker, Tag, DollarSign, Image as ImageIcon } from 'lucide-react';
+import { X, Plus, Trash2, Beaker, Tag, DollarSign, Image as ImageIcon, Settings2 } from 'lucide-react';
 
 export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredients, token, onSuccess }) {
   const [name, setName] = useState('');
@@ -9,6 +9,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
   const [isAvailable, setIsAvailable] = useState(true);
   
   const [ingredients, setIngredients] = useState([]);
+  const [modifierGroups, setModifierGroups] = useState([]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -21,6 +22,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setPrice(initialData.price || '');
         setPhotoUrl(initialData.photoUrl || '');
         setIsAvailable(initialData.isAvailable !== false);
+        setModifierGroups(initialData.modifierGroups || []);
         
         // Fetch recipe if editing
         setIsLoading(true);
@@ -47,11 +49,13 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setPhotoUrl('');
         setIsAvailable(true);
         setIngredients([]);
+        setModifierGroups([]);
         setIsLoading(false);
       }
     }
   }, [isOpen, initialData, token]);
 
+  // --- Recipe Handlers ---
   const handleAddIngredient = () => {
     setIngredients([...ingredients, { ingredientId: '', quantity: '', unit: 'g' }]);
   };
@@ -64,19 +68,49 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
     const newIngredients = [...ingredients];
     newIngredients[index][field] = value;
     
-    // Auto-fill unit based on selected raw ingredient if possible
     if (field === 'ingredientId') {
       const selectedRaw = rawIngredients.find(r => r._id === value);
       if (selectedRaw) {
-        // Simple heuristic: if purchase unit is kg, default to g. if L, default to ml.
         const pUnit = (selectedRaw.purchaseUnit || '').toLowerCase();
         if (pUnit === 'kg') newIngredients[index].unit = 'g';
         else if (pUnit === 'l' || pUnit === 'liter') newIngredients[index].unit = 'ml';
         else newIngredients[index].unit = selectedRaw.purchaseUnit;
       }
     }
-    
     setIngredients(newIngredients);
+  };
+
+  // --- Modifier Handlers ---
+  const handleAddModifierGroup = () => {
+    setModifierGroups([...modifierGroups, { name: '', required: false, multiSelect: false, options: [] }]);
+  };
+
+  const handleRemoveModifierGroup = (gIdx) => {
+    setModifierGroups(modifierGroups.filter((_, i) => i !== gIdx));
+  };
+
+  const handleUpdateModifierGroup = (gIdx, field, value) => {
+    const newGroups = [...modifierGroups];
+    newGroups[gIdx][field] = value;
+    setModifierGroups(newGroups);
+  };
+
+  const handleAddModifierOption = (gIdx) => {
+    const newGroups = [...modifierGroups];
+    newGroups[gIdx].options.push({ name: '', price: '' });
+    setModifierGroups(newGroups);
+  };
+
+  const handleRemoveModifierOption = (gIdx, oIdx) => {
+    const newGroups = [...modifierGroups];
+    newGroups[gIdx].options.splice(oIdx, 1);
+    setModifierGroups(newGroups);
+  };
+
+  const handleUpdateModifierOption = (gIdx, oIdx, field, value) => {
+    const newGroups = [...modifierGroups];
+    newGroups[gIdx].options[oIdx][field] = value;
+    setModifierGroups(newGroups);
   };
 
   const handleSubmit = async (e) => {
@@ -84,8 +118,18 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
     setIsSaving(true);
 
     try {
+      // Cleanup modifiers data
+      const cleanedModifierGroups = modifierGroups
+        .filter(g => g.name.trim() !== '')
+        .map(g => ({
+          ...g,
+          options: g.options
+            .filter(o => o.name.trim() !== '')
+            .map(o => ({ ...o, price: parseFloat(o.price) || 0 }))
+        }));
+
       // 1. Save Menu Item
-      const menuPayload = { name, category, price: parseFloat(price), photoUrl, isAvailable };
+      const menuPayload = { name, category, price: parseFloat(price), photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
       const menuMethod = initialData ? 'PUT' : 'POST';
       const menuUrl = initialData 
         ? `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}`
@@ -131,7 +175,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-meza-text/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-[#fcf9f5] shrink-0">
           <div>
             <h3 className="font-black text-meza-text text-lg leading-tight">
@@ -202,15 +246,91 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
                 </div>
               </div>
 
+              {/* --- Modifiers Builder Section --- */}
+              <div className="space-y-4 bg-gray-50 p-5 rounded-2xl border border-gray-200">
+                <div className="flex justify-between items-end border-b border-gray-200 pb-2">
+                  <div>
+                    <h4 className="text-sm font-bold text-meza-text uppercase tracking-wider flex items-center space-x-2">
+                      <Settings2 className="w-4 h-4 text-purple-500" />
+                      <span>Add-ons & Modifiers</span>
+                    </h4>
+                    <p className="text-[10px] text-gray-500 mt-1 uppercase font-semibold tracking-wider">Create options like "Extra Shot" or "Oat Milk"</p>
+                  </div>
+                  <button type="button" onClick={handleAddModifierGroup} className="text-xs font-bold text-purple-600 hover:text-purple-700 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-lg flex items-center space-x-1 transition-colors shadow-sm">
+                    <Plus className="w-3.5 h-3.5" /><span>Add Group</span>
+                  </button>
+                </div>
+
+                {modifierGroups.length === 0 ? (
+                  <div className="text-center py-6">
+                    <p className="text-sm font-bold text-gray-400">No modifier groups.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {modifierGroups.map((group, gIdx) => (
+                      <div key={gIdx} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                        <div className="p-3 bg-gray-50 border-b border-gray-100 flex items-center space-x-3">
+                          <input 
+                            type="text" required placeholder="Group Name (e.g. Add-ons)" 
+                            value={group.name} onChange={e => handleUpdateModifierGroup(gIdx, 'name', e.target.value)}
+                            className="flex-1 px-3 py-1.5 text-sm font-bold bg-white border border-gray-200 rounded-lg outline-none focus:border-purple-400"
+                          />
+                          <label className="flex items-center space-x-1.5 text-xs font-bold text-gray-600">
+                            <input type="checkbox" checked={group.multiSelect} onChange={e => handleUpdateModifierGroup(gIdx, 'multiSelect', e.target.checked)} className="rounded text-purple-500 focus:ring-purple-500" />
+                            <span>Multiple Choice</span>
+                          </label>
+                          <label className="flex items-center space-x-1.5 text-xs font-bold text-gray-600">
+                            <input type="checkbox" checked={group.required} onChange={e => handleUpdateModifierGroup(gIdx, 'required', e.target.checked)} className="rounded text-purple-500 focus:ring-purple-500" />
+                            <span>Required</span>
+                          </label>
+                          <button type="button" onClick={() => handleRemoveModifierGroup(gIdx)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        
+                        <div className="p-3 space-y-2">
+                          {group.options.map((opt, oIdx) => (
+                            <div key={oIdx} className="flex items-center space-x-2">
+                              <input 
+                                type="text" required placeholder="Option Name (e.g. Vanilla Syrup)" 
+                                value={opt.name} onChange={e => handleUpdateModifierOption(gIdx, oIdx, 'name', e.target.value)}
+                                className="flex-1 px-3 py-1.5 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-purple-400"
+                              />
+                              <div className="relative w-32">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-bold">₱</span>
+                                <input 
+                                  type="number" step="any" required placeholder="0.00" 
+                                  value={opt.price} onChange={e => handleUpdateModifierOption(gIdx, oIdx, 'price', e.target.value)}
+                                  className="w-full pl-7 pr-3 py-1.5 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-purple-400"
+                                />
+                              </div>
+                              <button type="button" onClick={() => handleRemoveModifierOption(gIdx, oIdx)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                          <button type="button" onClick={() => handleAddModifierOption(gIdx)} className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center space-x-1 pl-1">
+                            <Plus className="w-3 h-3" /><span>Add Option</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* --- Recipe Builder Section --- */}
               <div className="space-y-4">
                 <div className="flex justify-between items-end border-b border-gray-100 pb-2">
-                  <h4 className="text-sm font-bold text-meza-text uppercase tracking-wider flex items-center space-x-2">
-                    <Beaker className="w-4 h-4 text-meza-primary" />
-                    <span>Recipe Builder</span>
-                  </h4>
-                  <button type="button" onClick={handleAddIngredient} className="text-xs font-bold text-meza-primary hover:text-meza-primary-hover bg-meza-primary/10 px-2.5 py-1 rounded-md flex items-center space-x-1 transition-colors">
-                    <Plus className="w-3 h-3" /><span>Add Ingredient</span>
+                  <div>
+                    <h4 className="text-sm font-bold text-meza-text uppercase tracking-wider flex items-center space-x-2">
+                      <Beaker className="w-4 h-4 text-meza-primary" />
+                      <span>Recipe Builder</span>
+                    </h4>
+                    <p className="text-[10px] text-gray-500 mt-1 uppercase font-semibold tracking-wider">Raw inventory deduction</p>
+                  </div>
+                  <button type="button" onClick={handleAddIngredient} className="text-xs font-bold text-meza-primary hover:text-meza-primary-hover bg-meza-primary/10 px-3 py-1.5 rounded-lg flex items-center space-x-1 transition-colors">
+                    <Plus className="w-3.5 h-3.5" /><span>Add Ingredient</span>
                   </button>
                 </div>
 

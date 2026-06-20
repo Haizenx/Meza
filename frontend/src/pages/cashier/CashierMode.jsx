@@ -675,17 +675,17 @@ export default function CashierMode() {
           <div className="bg-white border-b border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center gap-4 shadow-sm z-10">
             {/* Search */}
             <div className="relative w-full sm:w-72 shrink-0">
-              <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input id="pos-search" type="text" placeholder="Search menu (Cmd+F)..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold outline-none focus:border-meza-primary focus:bg-white transition-all shadow-inner" />
+              <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input id="pos-search" type="text" placeholder="Search menu..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-base font-semibold outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 transition-all shadow-inner" />
             </div>
 
             {/* Categories (Horizontal Scroll) */}
-            <div className="flex space-x-2 overflow-x-auto no-scrollbar w-full pb-1">
+            <div className="flex space-x-3 overflow-x-auto no-scrollbar w-full pb-1">
               {['All', ...new Set(menuItems.map(i => i.category))].map(cat => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 ${activeCategory === cat ? 'bg-meza-text text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  className={`px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 border-2 ${activeCategory === cat ? 'border-meza-primary bg-meza-primary/10 text-meza-primary shadow-sm' : 'border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                 >
                   {cat}
                 </button>
@@ -694,41 +694,61 @@ export default function CashierMode() {
           </div>
 
           {/* Menu Grid */}
-          <main className="flex-1 overflow-y-auto p-6">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <main className="flex-1 overflow-y-auto p-6 bg-[#f4f1eb]">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {filteredMenu.map(item => {
-                const isDisabled = !item.isAvailable || item.calculatedStock === 0;
+                const isSoldOut = !item.isAvailable || item.calculatedStock === 0;
                 return (
-                  <div key={item._id} onClick={(e) => handleItemClick(item, e)} className={`relative bg-white rounded-xl p-5 border shadow-sm transition-all cursor-pointer flex flex-col justify-between active:scale-95 min-h-[140px] ${isDisabled ? 'opacity-50 grayscale border-gray-200' : 'hover:-translate-y-0.5 hover:shadow-md border-gray-200'}`}>
+                  <div key={item._id} onClick={(e) => handleItemClick(item, e)} className={`relative bg-white rounded-2xl border border-gray-100 shadow-sm transition-all cursor-pointer flex flex-col overflow-hidden active:scale-95 group min-h-[180px] ${isSoldOut ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-xl'}`}>
 
-                    {/* Stock Counter Badge */}
-                    {item.calculatedStock !== null && item.calculatedStock !== undefined && (
-                      <div className={`absolute top-3 right-3 text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm ${item.calculatedStock <= 5 ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                        {item.calculatedStock} left
-                      </div>
+                    {/* Image Area */}
+                    <div className="h-32 bg-gray-100 relative overflow-hidden shrink-0">
+                      {item.photoUrl ? (
+                        <img src={item.photoUrl} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          {item.category === 'Drinks' ? <Coffee className="w-10 h-10" /> : item.category === 'Food' ? <UtensilsCrossed className="w-10 h-10" /> : <Croissant className="w-10 h-10" />}
+                        </div>
+                      )}
+                      
+                      {/* Beautiful Stock Indicators */}
+                      {isSoldOut ? (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[2px]">
+                          <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest shadow-lg transform -rotate-6">Sold Out</span>
+                        </div>
+                      ) : (
+                        item.calculatedStock !== null && item.calculatedStock !== undefined && (
+                          <div className={`absolute top-3 right-3 text-[10px] font-black px-2 py-1 rounded-lg shadow-md backdrop-blur-md ${item.calculatedStock <= 5 ? 'bg-red-500/90 text-white' : 'bg-white/90 text-gray-700 border border-gray-200/50'}`}>
+                            {item.calculatedStock} left
+                          </div>
+                        )
+                      )}
+                    </div>
+
+                    {/* Text Area */}
+                    <div className="p-4 flex-1 flex flex-col justify-between bg-white z-10">
+                      <h3 className="font-black text-meza-text text-[15px] leading-snug line-clamp-2">{item.name}</h3>
+                      <span className="text-meza-primary font-black text-base mt-2">₱{item.price.toFixed(2)}</span>
+                    </div>
+
+                    {/* Restock/86 Controls */}
+                    {!isSoldOut && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }}
+                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-md bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Mark as Sold Out"
+                      >
+                        86
+                      </button>
                     )}
-
-                    <div className="flex justify-between items-start">
-                      <div className="p-2.5 rounded-lg bg-gray-50 text-meza-primary">
-                        {item.category === 'Drinks' ? <Coffee className="w-6 h-6" /> : item.category === 'Food' ? <UtensilsCrossed className="w-6 h-6" /> : <Croissant className="w-6 h-6" />}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-col">
-                      <h3 className="font-black text-meza-text text-sm leading-tight mb-1 truncate">{item.name}</h3>
-                      <div className="flex justify-between items-end">
-                        <span className="text-meza-primary font-bold text-sm">₱{item.price.toFixed(2)}</span>
-
-                        {/* The "86" Button */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }}
-                          className={`text-[9px] uppercase font-bold border px-1.5 py-0.5 rounded transition-colors ${item.isAvailable ? 'text-red-500 border-red-200 bg-white hover:bg-red-50' : 'text-green-600 border-green-200 bg-white hover:bg-green-50'}`}
-                        >
-                          {item.isAvailable ? '86 (Out)' : 'Restock'}
-                        </button>
-                      </div>
-                    </div>
-                    {isDisabled && <div className="absolute inset-0 z-10" />} {/* Block clicks if disabled except on the 86 button which intercepts via stopPropagation */}
+                    {isSoldOut && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }}
+                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-md bg-white text-green-600 hover:bg-green-50 shadow-sm transition-colors z-20"
+                      >
+                        Restock
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -751,7 +771,7 @@ export default function CashierMode() {
               onClick={() => setRightPanelTab('unpaid')}
               className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'unpaid' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
             >
-              Unpaid {unpaidOrders.length > 0 && <span className="ml-1.5 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{unpaidOrders.length}</span>}
+              To Pay {unpaidOrders.length > 0 && <span className="ml-1.5 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{unpaidOrders.length}</span>}
             </button>
             <button
               onClick={() => setRightPanelTab('kitchen')}
@@ -963,7 +983,8 @@ export default function CashierMode() {
                 </div>
 
                 <div className="mb-4">
-                  <input type="text" placeholder="Customer Name (Optional)" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full text-sm bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 outline-none focus:border-meza-primary font-medium" />
+                  <label className="text-xs font-bold text-gray-500 uppercase ml-1 mb-1 block">Customer Name <span className="text-red-500">*</span></label>
+                  <input type="text" placeholder="Required for table / calling" value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full text-base bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 font-bold" />
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1032,7 +1053,7 @@ export default function CashierMode() {
 
                 <button
                   onClick={processCheckout}
-                  disabled={(paymentMethod === 'cash' && (parseFloat(cashTendered || 0) < total)) || (paymentMethod === 'split' && splitPayments.reduce((s, p) => s + (p.amount || 0), 0) < total)}
+                  disabled={!customerName.trim() || (paymentMethod === 'cash' && (parseFloat(cashTendered || 0) < total)) || (paymentMethod === 'split' && splitPayments.reduce((s, p) => s + (p.amount || 0), 0) < total)}
                   className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold uppercase tracking-wider text-sm shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer"
                 >
                   <Printer className="w-5 h-5" />
