@@ -52,6 +52,7 @@ export default function CashierMode() {
   const [customerName, setCustomerName] = useState('');
   const [splitPayments, setSplitPayments] = useState([]); // Array of { method, amount }
   const [printOrder, setPrintOrder] = useState(null);
+  const [checkoutSuccessModal, setCheckoutSuccessModal] = useState(null);
 
   // Initialize DB and Sync Loop
   useEffect(() => {
@@ -338,6 +339,8 @@ export default function CashierMode() {
       createdAtLocal: new Date().toISOString()
     };
 
+    const printableOrder = { ...orderPayload, total, cart };
+
     // 1. Save to Offline DB immediately
     await saveOrderOffline(orderPayload);
 
@@ -349,10 +352,8 @@ export default function CashierMode() {
     // 3. Attempt Sync immediately
     flushPendingOrders();
 
-    // 4. Print Receipt
-    printReceipt(orderPayload);
-
-    alert('Payment Successful! Order saved.');
+    // 4. Show success modal
+    setCheckoutSuccessModal(printableOrder);
   };
 
   // --- SECURITY / PIN VERIFICATION ---
@@ -614,8 +615,35 @@ export default function CashierMode() {
           </div>
         )}
 
+        {/* CHECKOUT SUCCESS MODAL */}
+        {checkoutSuccessModal && (
+          <div className="absolute inset-0 bg-meza-text/80 backdrop-blur-md z-[200] flex items-center justify-center">
+            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100 text-center animate-in fade-in zoom-in duration-300">
+              <div className="w-16 h-16 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8" />
+              </div>
+              <h2 className="text-2xl font-black text-meza-text mb-2">Payment Successful!</h2>
+              <p className="text-sm text-gray-500 mb-6">Order #{checkoutSuccessModal.localUUID.slice(-4).toUpperCase()} has been saved.</p>
+              
+              <div className="flex flex-col space-y-3">
+                <button onClick={() => { 
+                  setPrintOrder(checkoutSuccessModal); 
+                  setTimeout(() => window.print(), 100);
+                  setCheckoutSuccessModal(null); 
+                }} className="w-full py-4 bg-meza-primary hover:bg-meza-primary-hover text-white rounded-xl font-bold tracking-widest uppercase text-sm shadow-md transition-all flex items-center justify-center space-x-2">
+                  <Printer className="w-5 h-5" />
+                  <span>Print Receipt</span>
+                </button>
+                <button onClick={() => setCheckoutSuccessModal(null)} className="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold tracking-widest uppercase text-sm transition-all">
+                  No Receipt Needed
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* LEFT: POS GRID */}
-        <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${(isStartingShift || pinModal.isOpen) ? 'blur-md pointer-events-none' : ''}`}>
+        <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${(isStartingShift || pinModal.isOpen || checkoutSuccessModal) ? 'blur-md pointer-events-none' : ''}`}>
 
           {/* Header */}
           <header className="h-16 bg-white border-b border-gray-200 px-6 flex justify-between items-center shadow-sm">
@@ -709,7 +737,7 @@ export default function CashierMode() {
         </div>
 
         {/* RIGHT: CART / KITCHEN TAB */}
-        <div className={`w-full md:w-80 lg:w-96 bg-white border-l border-gray-200 flex flex-col shadow-2xl z-20 transition-all duration-300 ${(isStartingShift || pinModal.isOpen) ? 'blur-md pointer-events-none' : ''}`}>
+        <div className={`w-full md:w-80 lg:w-96 bg-white border-l border-gray-200 flex flex-col shadow-2xl z-20 transition-all duration-300 ${(isStartingShift || pinModal.isOpen || checkoutSuccessModal) ? 'blur-md pointer-events-none' : ''}`}>
 
           {/* Panel Tabs */}
           <div className="flex border-b border-gray-200 bg-gray-50">
