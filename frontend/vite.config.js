@@ -23,7 +23,12 @@ export default defineConfig({
         theme_color: '#f97316',
         icons: [
           {
-            src: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png', // Placeholder coffee icon
+            src: '/icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: '/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png'
           }
