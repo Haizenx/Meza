@@ -111,7 +111,15 @@ export default function CashierMode() {
     fetchKitchenOrders();
     fetchUnpaidOrders();
 
-    return () => newSocket.disconnect();
+    syncChannel.onmessage = (event) => {
+      if (event.data.type === 'NEW_OFFLINE_ORDER' || event.data.type === 'SYNC_COMPLETE' || event.data.type === 'KDS_OFFLINE_UPDATE') {
+        fetchKitchenOrders();
+      }
+    };
+
+    return () => {
+      newSocket.disconnect();
+    };
   }, [token]);
 
   useEffect(() => {
@@ -162,10 +170,30 @@ export default function CashierMode() {
 
   const fetchKitchenOrders = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/kds/active`, { headers: { 'Authorization': `Bearer ${token}` } });
-      const data = await res.json();
-      setKitchenOrders(Array.isArray(data) ? data : []);
-    } catch (e) { console.error("Kitchen fetch error", e); }
+      let onlineOrders = [];
+      if (navigator.onLine) {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/kds/active`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) onlineOrders = await res.json();
+      }
+      
+      const offlineOrders = await getPendingOrders();
+      const offlineMapped = offlineOrders.map(o => ({
+        ...o,
+        _id: o.localUUID,
+        createdAt: o.createdAtLocal || new Date().toISOString(),
+        isOffline: true
+      })).filter(o => ['pending', 'preparing', 'ready'].includes(o.fulfillmentStatus));
+
+      const merged = [...onlineOrders, ...offlineMapped].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+      setKitchenOrders(merged);
+    } catch (e) { 
+      console.error("Kitchen fetch error", e); 
+      const offlineOrders = await getPendingOrders();
+      const offlineMapped = offlineOrders.map(o => ({
+        ...o, _id: o.localUUID, createdAt: o.createdAtLocal || new Date().toISOString(), isOffline: true
+      })).filter(o => ['pending', 'preparing', 'ready'].includes(o.fulfillmentStatus));
+      setKitchenOrders(offlineMapped.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)));
+    }
   };
 
   const fetchUnpaidOrders = async () => {
@@ -344,7 +372,7 @@ export default function CashierMode() {
     const orderPayload = {
       localUUID,
       shiftId: currentShift?._id,
-      items: cart.map(i => ({ menuItemId: i._id, quantity: i.quantity, note: i.note || '', modifiers: i.modifiers || [] })),
+      items: cart.map(i => ({ menuItemId: i._id, nameAtSale: i.name, quantity: i.quantity, note: i.note || '', modifiers: i.modifiers || [] })),
       paymentMethod,
       splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashTendered: paymentMethod === 'cash' ? parseFloat(cashTendered || 0) : 0,
