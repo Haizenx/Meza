@@ -132,19 +132,32 @@ export default function CashierMode() {
       const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/current`, { headers: { 'Authorization': `Bearer ${token}` } });
       const shift = await res.json();
       if (shift && shift._id) {
+        localStorage.setItem('meza_cached_shift', JSON.stringify(shift));
         setCurrentShift(shift);
       } else {
+        localStorage.removeItem('meza_cached_shift');
         setIsStartingShift(true);
       }
-    } catch (e) { console.error("Shift fetch error", e); }
+    } catch (e) { 
+      console.error("Shift fetch error, falling back to cache", e); 
+      const cached = localStorage.getItem('meza_cached_shift');
+      if (cached) setCurrentShift(JSON.parse(cached));
+      // If offline and no cache, we just leave currentShift as null, 
+      // but they can't checkout anyway without a shift.
+    }
   };
 
   const fetchMenu = async () => {
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
+      localStorage.setItem('meza_cached_menu', JSON.stringify(data));
       setMenuItems(data.filter(i => !i.isArchived));
-    } catch (e) { console.error("Menu fetch error", e); }
+    } catch (e) { 
+      console.error("Menu fetch error, falling back to cache", e); 
+      const cached = localStorage.getItem('meza_cached_menu');
+      if (cached) setMenuItems(JSON.parse(cached).filter(i => !i.isArchived));
+    }
   };
 
   const fetchKitchenOrders = async () => {
@@ -456,7 +469,9 @@ export default function CashierMode() {
         body: JSON.stringify({ startingCash: parseFloat(startingCashInput) })
       });
       if (res.ok) {
-        setCurrentShift(await res.json());
+        const newShift = await res.json();
+        localStorage.setItem('meza_cached_shift', JSON.stringify(newShift));
+        setCurrentShift(newShift);
         setIsStartingShift(false);
       } else {
         alert('Failed to start shift');
