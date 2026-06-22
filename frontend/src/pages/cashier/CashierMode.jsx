@@ -3,6 +3,9 @@ import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, Utensi
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { openDB } from 'idb';
+import { getPendingOrders, savePendingOrder, deletePendingOrder, updatePendingOrder } from '../../utils/idb';
+
+const syncChannel = new BroadcastChannel('meza-offline-sync');
 import { io } from 'socket.io-client';
 import ProfileModal from '../../components/ProfileModal';
 import ReceiptPrinter from '../../components/ReceiptPrinter';
@@ -183,26 +186,16 @@ export default function CashierMode() {
   };
 
   // --- INDEXEDDB OFFLINE LOGIC ---
-  const initDB = async () => {
-    return openDB('meza-pos', 1, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('pendingOrders')) {
-          db.createObjectStore('pendingOrders', { keyPath: 'localUUID' });
-        }
-      },
-    });
-  };
 
   const checkPendingCount = async () => {
-    const db = await initDB();
-    const count = await db.count('pendingOrders');
-    setPendingOrdersCount(count);
+    const orders = await getPendingOrders();
+    setPendingOrdersCount(orders.length);
   };
 
   const saveOrderOffline = async (orderPayload) => {
-    const db = await initDB();
-    await db.put('pendingOrders', { ...orderPayload, syncStatus: 'pending', retryCount: 0 });
+    await savePendingOrder({ ...orderPayload, syncStatus: 'pending', retryCount: 0, fulfillmentStatus: 'pending' });
     checkPendingCount();
+    syncChannel.postMessage({ type: 'NEW_OFFLINE_ORDER' });
   };
 
   const flushPendingOrders = async () => {
@@ -215,8 +208,7 @@ export default function CashierMode() {
       return; // Truly offline
     }
 
-    const db = await initDB();
-    const orders = await db.getAll('pendingOrders');
+    const orders = await getPendingOrders();
 
     for (let order of orders) {
       try {
@@ -227,26 +219,27 @@ export default function CashierMode() {
         });
 
         if (res.ok) {
-          await db.delete('pendingOrders', order.localUUID);
+          await deletePendingOrder(order.localUUID);
         } else {
           const errorText = await res.text();
           console.error(`Order ${order.localUUID} rejected by server:`, errorText);
           showToast(`Order failed to sync: ${errorText}`, 'error');
           // Still delete it if it's a 4xx error so it doesn't loop forever
           if (res.status >= 400 && res.status < 500) {
-            await db.delete('pendingOrders', order.localUUID);
+            await deletePendingOrder(order.localUUID);
           } else {
             order.retryCount += 1;
-            await db.put('pendingOrders', order);
+            await savePendingOrder(order);
           }
         }
       } catch (err) {
         // Network error during flush, increment retry
         order.retryCount += 1;
-        await db.put('pendingOrders', order);
+        await savePendingOrder(order);
       }
     }
     checkPendingCount();
+    syncChannel.postMessage({ type: 'SYNC_COMPLETE' });
   };
 
   // --- PRINT LOGIC ---

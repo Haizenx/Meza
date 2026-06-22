@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNavigate } from 'react-router-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { getPendingOrders, updatePendingOrder } from '../../utils/idb';
 
 export default function KitchenDisplay() {
   const { token } = useAuth();
@@ -16,19 +17,57 @@ export default function KitchenDisplay() {
     ready: { id: 'ready', title: 'Ready to Serve', icon: Check, color: 'border-green-500/50', bg: 'bg-green-500/10' }
   });
 
-  const fetchOrders = () => {
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/kds/active`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
-      .then(data => {
-        if (Array.isArray(data)) setOrders(data);
-      })
-      .catch(console.error);
+  const fetchOrders = async () => {
+    try {
+      let onlineOrders = [];
+      if (navigator.onLine) {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/kds/active`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) onlineOrders = await res.json();
+      }
+
+      const offlineOrders = await getPendingOrders();
+      const offlineMapped = offlineOrders.map(o => ({
+        ...o,
+        _id: o.localUUID,
+        createdAt: o.createdAtLocal || new Date().toISOString(),
+        isOffline: true
+      })).filter(o => ['pending', 'preparing', 'ready'].includes(o.fulfillmentStatus));
+
+      setOrders([...onlineOrders, ...offlineMapped].sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)));
+    } catch (e) {
+      console.error(e);
+      // Fallback to offline only
+      const offlineOrders = await getPendingOrders();
+      const offlineMapped = offlineOrders.map(o => ({
+        ...o,
+        _id: o.localUUID,
+        createdAt: o.createdAtLocal || new Date().toISOString(),
+        isOffline: true
+      })).filter(o => ['pending', 'preparing', 'ready'].includes(o.fulfillmentStatus));
+      
+      setOrders(offlineMapped.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)));
+    }
   };
 
   useEffect(() => {
     if (token) fetchOrders();
+
+    const syncChannel = new BroadcastChannel('meza-offline-sync');
+    syncChannel.onmessage = (event) => {
+      if (event.data.type === 'NEW_OFFLINE_ORDER') {
+        try {
+          const audio = new Audio('/bell.mp3');
+          audio.play().catch(e=>console.log(e));
+        } catch(e){}
+        fetchOrders();
+      }
+      if (event.data.type === 'SYNC_COMPLETE' || event.data.type === 'KDS_OFFLINE_UPDATE') {
+        fetchOrders();
+      }
+    };
+    return () => syncChannel.close();
   }, [token]);
 
   useEffect(() => {
@@ -66,6 +105,15 @@ export default function KitchenDisplay() {
       // Optimistic update
       setOrders(prev => prev.map(o => o._id === orderId ? { ...o, fulfillmentStatus: newStatus } : o));
       
+      const orderToUpdate = orders.find(o => o._id === orderId);
+      if (orderToUpdate?.isOffline) {
+        await updatePendingOrder(orderId, { fulfillmentStatus: newStatus });
+        const syncChannel = new BroadcastChannel('meza-offline-sync');
+        syncChannel.postMessage({ type: 'KDS_OFFLINE_UPDATE' });
+        syncChannel.close();
+        return;
+      }
+
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/${orderId}/kds`, {
         method: 'PUT',
         headers: {
