@@ -971,7 +971,10 @@ export default function CashierMode() {
                 shiftAnalytics.orders.map(o => (
                   <div key={o._id} className="bg-white border border-gray-100 rounded-xl shadow-sm p-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="font-black text-gray-800 text-sm">#{o._id.slice(-4).toUpperCase()}</span>
+                      <div className="flex flex-col">
+                        <span className="font-black text-gray-800 text-sm">#{o._id.slice(-4).toUpperCase()}</span>
+                        {o.customerName && <span className="text-xs font-bold text-gray-500">{o.customerName}</span>}
+                      </div>
                       <span className="text-xs font-bold text-gray-400">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                     <ul className="space-y-1 mb-3 border-b border-gray-100 pb-3">

@@ -28,7 +28,7 @@ router.post('/', authenticate, [
   validate
 ], async (req, res) => {
   try {
-    const { localUUID, items, paymentMethod, cashTendered, shiftId, customerName, splitPayments } = req.body;
+    const { localUUID, items, paymentMethod, cashTendered, shiftId, customerName, splitPayments, fulfillmentStatus } = req.body;
 
     if (!localUUID) return res.status(400).json({ message: 'localUUID is required' });
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
@@ -169,7 +169,7 @@ router.post('/', authenticate, [
       cashierId: req.user.id,
       shiftId: shiftId,
       status: 'completed',
-      fulfillmentStatus: 'pending'
+      fulfillmentStatus: fulfillmentStatus || 'pending'
     });
 
     await newOrder.save();

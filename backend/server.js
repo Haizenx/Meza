@@ -82,7 +82,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/bookings', bookingRoutes);
 
 const PORT = process.env.PORT || 5001;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/meza_cafe';
+const MONGO_URI = process.env.MONGO_URI;
 
 // Socket.io Authentication Middleware
 io.use((socket, next) => {

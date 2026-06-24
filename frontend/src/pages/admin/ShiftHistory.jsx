@@ -345,7 +345,10 @@ export default function ShiftHistory() {
                             analyticsData.analytics.orders.map(order => (
                               <tr key={order._id} className="hover:bg-gray-50">
                                 <td className="px-4 py-3 font-medium text-gray-500">{new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                                <td className="px-4 py-3 font-bold text-gray-700">#{order._id.slice(-4).toUpperCase()}</td>
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-gray-700">#{order._id.slice(-4).toUpperCase()}</div>
+                                  {order.customerName && <div className="text-xs text-gray-500 font-normal">{order.customerName}</div>}
+                                </td>
                                 <td className="px-4 py-3 text-gray-600 text-xs">
                                   {order.items.map(i => (
                                     <div key={i._id || i.menuItemId}>

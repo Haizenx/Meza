@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, UtensilsCrossed, Calculator, Package, LogOut, CalendarRange, Users, FileText, UserCog } from 'lucide-react';
+import { LayoutDashboard, Receipt, UtensilsCrossed, Calculator, Package, LogOut, CalendarRange, Users, FileText, UserCog, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ProfileModal from '../ProfileModal';
 
@@ -17,6 +17,7 @@ export default function AdminLayout() {
     { name: 'Bookings', path: '/admin/bookings', icon: CalendarRange },
     { name: 'Shift Tracking', path: '/admin/shifts', icon: FileText, roles: ['owner', 'manager'] },
     { name: 'Staff Management', path: '/admin/staff', icon: Users, roles: ['owner', 'manager'] },
+    { name: 'System Settings', path: '/admin/settings', icon: Settings, roles: ['owner', 'manager'] },
   ];
 
   return (

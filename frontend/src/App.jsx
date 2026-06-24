@@ -11,6 +11,7 @@ import CashierMode from './pages/cashier/CashierMode';
 import Login from './pages/Login';
 import StaffManagement from './pages/admin/StaffManagement';
 import ShiftHistory from './pages/admin/ShiftHistory';
+import SystemSettings from './pages/admin/SystemSettings';
 import KitchenDisplay from './pages/kds/KitchenDisplay';
 import QRMenu from './pages/customer/QRMenu';
 
@@ -67,6 +68,7 @@ function AppRoutes() {
         <Route path="calculator" element={<RecipeCalculator />} />
         <Route path="staff" element={<StaffManagement />} />
         <Route path="shifts" element={<ShiftHistory />} />
+        <Route path="settings" element={<SystemSettings />} />
         {/* Mocks for other sidebar links */}
         <Route path="*" element={<div className="p-8 text-meza-muted">Under Construction</div>} />
       </Route>
