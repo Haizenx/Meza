@@ -53,17 +53,34 @@ router.get('/', authenticate, async (req, res) => {
     const Recipe = require('../models/Recipe');
     const Ingredient = require('../models/Ingredient');
 
+    // 1. Fetch all items (Query 1)
     const items = await MenuItem.find({ isArchived: false }).lean();
+    const itemIds = items.map(i => i._id);
     
-    // Calculate real-time available stock
+    // 2. Fetch all related recipes (Query 2)
+    const allRecipes = await Recipe.find({ menuItemId: { $in: itemIds } }).lean();
+    
+    // 3. Extract unique ingredient IDs and fetch them (Query 3)
+    const ingredientIds = new Set();
+    allRecipes.forEach(r => {
+      if (r.ingredients) r.ingredients.forEach(i => ingredientIds.add(i.ingredientId.toString()));
+    });
+    
+    const allIngredients = await Ingredient.find({ _id: { $in: Array.from(ingredientIds) } }).lean();
+    const ingredientMap = {};
+    allIngredients.forEach(ing => {
+      ingredientMap[ing._id.toString()] = ing;
+    });
+
+    // 4. Calculate real-time available stock purely in memory (O(1) lookups)
     for (let item of items) {
-      const recipes = await Recipe.find({ menuItemId: item._id }).lean();
+      const recipes = allRecipes.filter(r => r.menuItemId.toString() === item._id.toString());
       
-      const calculateStockForRecipe = async (recipe) => {
+      const calculateStockForRecipe = (recipe) => {
         if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) return null;
         let maxPortions = Infinity;
         for (let ri of recipe.ingredients) {
-          const ing = await Ingredient.findById(ri.ingredientId).lean();
+          const ing = ingredientMap[ri.ingredientId.toString()];
           if (ing && ri.quantity > 0) {
             let multiplier = 1;
             const recUnit = (ri.unit || '').toLowerCase();
@@ -84,25 +101,22 @@ router.get('/', authenticate, async (req, res) => {
       };
 
       if (item.sizes && item.sizes.length > 0) {
-        // Calculate stock for each size
-        item.calculatedStock = 0; // Total stock could be max or 0, but usually we just want it per size
+        item.calculatedStock = 0; 
         for (let size of item.sizes) {
           const sizeRecipe = recipes.find(r => r.size === size.name) || recipes[0];
-          size.calculatedStock = await calculateStockForRecipe(sizeRecipe);
-          // Set base item calculated stock to the sum or max? 
-          // Let's set the base calculatedStock to the maximum available among sizes so it shows "Available" if at least one size is.
+          size.calculatedStock = calculateStockForRecipe(sizeRecipe);
           if (size.calculatedStock !== null && size.calculatedStock > item.calculatedStock) {
             item.calculatedStock = size.calculatedStock;
           }
         }
       } else {
-        // No sizes, just calculate for the first recipe
-        item.calculatedStock = await calculateStockForRecipe(recipes[0]);
+        item.calculatedStock = calculateStockForRecipe(recipes[0]);
       }
     }
 
     res.json(items);
   } catch (err) {
+    console.error(err);
     res.status(500).send('Server error');
   }
 });

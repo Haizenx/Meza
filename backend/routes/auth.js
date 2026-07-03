@@ -48,18 +48,19 @@ router.post('/login', authLimiter, [
       role: user.role
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '12h' });
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    // Store JWT in httpOnly cookie
-    res.cookie('token', token, {
+    // Store Refresh Token in httpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 12 * 60 * 60 * 1000 // 12 hours
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
     res.json({
-      token,
+      token: accessToken,
       user: {
         id: user._id,
         name: user.name,
@@ -74,29 +75,27 @@ router.post('/login', authLimiter, [
 
 // POST /api/auth/logout
 router.post('/logout', (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('refreshToken');
   res.json({ message: 'Logged out successfully' });
 });
 
 // POST /api/auth/refresh
-router.post('/refresh', authenticate, async (req, res) => {
+router.post('/refresh', async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
+
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.id);
     if (!user || !user.isActive) return res.status(401).json({ message: 'User inactive' });
     
     const payload = { id: user._id, role: user.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '12h' });
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
     
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 12 * 60 * 60 * 1000
-    });
-    
-    res.json({ message: 'Token refreshed', token, user: { id: user._id, role: user.role, name: user.name } });
+    res.json({ message: 'Token refreshed', token: accessToken, user: { id: user._id, role: user.role, name: user.name } });
   } catch (err) {
-    res.status(500).send('Server error');
+    res.status(401).json({ message: 'Invalid or expired refresh token' });
   }
 });
 

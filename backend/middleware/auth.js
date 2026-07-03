@@ -15,17 +15,7 @@ const authenticate = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Server-side check for token revocation / user deactivation
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      return res.status(401).json({ message: 'User no longer exists' });
-    }
-    if (!user.isActive) {
-      return res.status(401).json({ message: 'Account is deactivated' });
-    }
-    
-    req.user = { id: user._id, role: user.role };
+    req.user = { id: decoded.id, role: decoded.role };
     next();
   } catch (err) {
     res.status(401).json({ message: 'Token is not valid' });

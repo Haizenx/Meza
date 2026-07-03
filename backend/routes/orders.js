@@ -46,14 +46,17 @@ router.post('/', authenticate, [
     const processedItems = [];
     const inventoryDeductions = new Map(); // ingredientId -> quantity to deduct
 
-    for (let item of items) {
-      if (!item.menuItemId || item.quantity <= 0) {
-        throw new Error('Invalid item data');
-      }
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      for (let item of items) {
+        if (!item.menuItemId || item.quantity <= 0) {
+          throw new Error('Invalid item data');
+        }
 
-      // 1. Fetch current price from DB (do NOT trust client price)
-      const menuItem = await MenuItem.findById(item.menuItemId);
-      if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
+        // 1. Fetch current price from DB (do NOT trust client price)
+        const menuItem = await MenuItem.findById(item.menuItemId).session(session);
+        if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
       
       let basePrice = menuItem.price;
       if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
@@ -95,8 +98,8 @@ router.post('/', authenticate, [
       });
 
       // 2. Deduct Finished Goods Stock directly from MenuItem
+      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } }, { session });
       menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
-      await menuItem.save();
 
       // Low Stock Alert for Finished Good
       if (menuItem.stockQuantity <= (menuItem.lowStockThreshold || 5)) {
@@ -130,10 +133,9 @@ router.post('/', authenticate, [
 
     // 4. Execute Atomic Raw Inventory Deductions
     for (let [ingId, amount] of inventoryDeductions.entries()) {
-      const ingredient = await Ingredient.findById(ingId);
+      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } }, { session });
+      const ingredient = await Ingredient.findById(ingId).session(session);
       if (ingredient) {
-        ingredient.stockQuantity -= amount;
-        await ingredient.save();
 
         // Low Stock Alert for Raw Ingredient
         if (ingredient.stockQuantity <= ingredient.lowStockThreshold) {
@@ -182,7 +184,7 @@ router.post('/', authenticate, [
       fulfillmentStatus: fulfillmentStatus || 'pending'
     });
 
-    await newOrder.save();
+    await newOrder.save({ session });
 
     if (newOrder.status === 'completed') {
       const transaction = new Transaction({
@@ -196,8 +198,11 @@ router.post('/', authenticate, [
         changeDue: newOrder.changeDue,
         cashierId: newOrder.cashierId
       });
-      await transaction.save();
+      await transaction.save({ session });
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     // Broadcast new order to Dashboard and KDS
     if (req.io) {
@@ -207,6 +212,12 @@ router.post('/', authenticate, [
     }
 
     res.status(201).json(newOrder);
+    
+    } catch (transactionErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionErr;
+    }
 
   } catch (err) {
     console.error('Order creation failed:', err.message);
@@ -241,13 +252,16 @@ router.post('/qr', async (req, res) => {
     const processedItems = [];
     const inventoryDeductions = new Map(); 
 
-    for (let item of items) {
-      if (!item.menuItemId || item.quantity <= 0) {
-        throw new Error('Invalid item data');
-      }
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      for (let item of items) {
+        if (!item.menuItemId || item.quantity <= 0) {
+          throw new Error('Invalid item data');
+        }
 
-      const menuItem = await MenuItem.findById(item.menuItemId);
-      if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
+        const menuItem = await MenuItem.findById(item.menuItemId).session(session);
+        if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
       if (!menuItem.isAvailable) throw new Error(`Item ${menuItem.name} is currently unavailable`);
 
       const itemTotal = menuItem.price * item.quantity;
@@ -262,8 +276,8 @@ router.post('/qr', async (req, res) => {
         note: item.note || ''
       });
 
+      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } }, { session });
       menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
-      await menuItem.save();
 
       if (menuItem.stockQuantity <= (menuItem.lowStockThreshold || 5)) {
         if (req.io) {
@@ -293,10 +307,9 @@ router.post('/qr', async (req, res) => {
     const total = subtotal;
 
     for (let [ingId, amount] of inventoryDeductions.entries()) {
-      const ingredient = await Ingredient.findById(ingId);
+      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } }, { session });
+      const ingredient = await Ingredient.findById(ingId).session(session);
       if (ingredient) {
-        ingredient.stockQuantity -= amount;
-        await ingredient.save();
 
         if (ingredient.stockQuantity <= ingredient.lowStockThreshold) {
           if (req.io) {
@@ -325,7 +338,24 @@ router.post('/qr', async (req, res) => {
       fulfillmentStatus: 'pending'
     });
 
-    await newOrder.save();
+    await newOrder.save({ session });
+    
+    if (status === 'completed') {
+      const transaction = new Transaction({
+        orderId: newOrder._id,
+        type: 'sale',
+        subtotal: newOrder.subtotal,
+        discountAmount: 0,
+        total: newOrder.total,
+        paymentMethod: newOrder.paymentMethod,
+        cashTendered: newOrder.total,
+        changeDue: 0
+      });
+      await transaction.save({ session });
+    }
+
+    await session.commitTransaction();
+    session.endSession();
 
     if (req.io) {
       req.io.emit('order:created', newOrder);
@@ -338,6 +368,12 @@ router.post('/qr', async (req, res) => {
     }
 
     res.status(201).json(newOrder);
+
+    } catch (transactionErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionErr;
+    }
 
   } catch (err) {
     console.error('QR Order creation failed:', err.message);
@@ -400,23 +436,34 @@ router.put('/:id/void', authenticate, async (req, res) => {
     order.voidedBy = authorizedManager._id;
     order.voidReason = voidReason;
     
-    await order.save();
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      await order.save({ session });
 
-    // Create a void transaction
-    const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' });
-    
-    const transaction = new Transaction({
-      orderId: order._id,
-      originalTransactionId: originalTx ? originalTx._id : undefined,
-      type: 'void',
-      subtotal: -order.subtotal, // Negate for analytics summing
-      discountAmount: -order.discountAmount,
-      total: -order.total,
-      paymentMethod: order.paymentMethod,
-      managerId: authorizedManager._id,
-      reason: voidReason
-    });
-    await transaction.save();
+      // Create a void transaction
+      const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' }).session(session);
+      
+      const transaction = new Transaction({
+        orderId: order._id,
+        originalTransactionId: originalTx ? originalTx._id : undefined,
+        type: 'void',
+        subtotal: -order.subtotal, // Negate for analytics summing
+        discountAmount: -order.discountAmount,
+        total: -order.total,
+        paymentMethod: order.paymentMethod,
+        managerId: authorizedManager._id,
+        reason: voidReason
+      });
+      await transaction.save({ session });
+
+      await session.commitTransaction();
+      session.endSession();
+    } catch (transactionErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionErr;
+    }
 
     if (req.io) {
       req.io.emit('order:updated', order);
@@ -453,19 +500,6 @@ router.put('/:id/kds', authenticate, async (req, res) => {
     order.fulfillmentStatus = fulfillmentStatus;
     await order.save();
 
-    const transaction = new Transaction({
-      orderId: order._id,
-      type: 'sale',
-      subtotal: order.subtotal,
-      discountAmount: order.discountAmount,
-      total: order.total,
-      paymentMethod: order.paymentMethod,
-      cashTendered: order.cashTendered,
-      changeDue: order.changeDue,
-      cashierId: req.user.id
-    });
-    await transaction.save();
-
     if (req.io) {
       req.io.emit('kds:update_status', order);
     }
@@ -498,20 +532,31 @@ router.put('/:id/pay', authenticate, async (req, res) => {
     order.paymentMethod = paymentMethod || 'cash';
     order.cashierId = req.user.id; // Record who processed the payment
     
-    await order.save();
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      await order.save({ session });
 
-    const transaction = new Transaction({
-      orderId: order._id,
-      type: 'sale',
-      subtotal: order.subtotal,
-      discountAmount: order.discountAmount,
-      total: order.total,
-      paymentMethod: order.paymentMethod,
-      cashTendered: order.cashTendered,
-      changeDue: order.changeDue,
-      cashierId: req.user.id
-    });
-    await transaction.save();
+      const transaction = new Transaction({
+        orderId: order._id,
+        type: 'sale',
+        subtotal: order.subtotal,
+        discountAmount: order.discountAmount,
+        total: order.total,
+        paymentMethod: order.paymentMethod,
+        cashTendered: order.cashTendered,
+        changeDue: order.changeDue,
+        cashierId: req.user.id
+      });
+      await transaction.save({ session });
+
+      await session.commitTransaction();
+      session.endSession();
+    } catch (transactionErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionErr;
+    }
 
     if (req.io) {
       req.io.emit('order:updated', order);
