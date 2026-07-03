@@ -32,6 +32,7 @@ export default function CashierMode() {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuItems, setMenuItems] = useState([]);
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+  const [failedOrdersCount, setFailedOrdersCount] = useState(0);
   const [rightPanelTab, setRightPanelTab] = useState('order'); // 'order' | 'unpaid' | 'kitchen' | 'history' | 'held'
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [unpaidOrders, setUnpaidOrders] = useState([]);
@@ -85,6 +86,12 @@ export default function CashierMode() {
     // Connect authenticated socket
     const newSocket = io(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`, {
       auth: { token }
+    });
+
+    newSocket.on('connect', () => {
+      console.log('Socket connected/reconnected. Healing state...');
+      fetchKitchenOrders();
+      fetchUnpaidOrders();
     });
 
     newSocket.on('menu:updated', () => fetchMenu());
@@ -230,7 +237,10 @@ export default function CashierMode() {
 
   const checkPendingCount = async () => {
     const orders = await getPendingOrders();
-    setPendingOrdersCount(orders.length);
+    const pending = orders.filter(o => o.syncStatus !== 'failed');
+    const failed = orders.filter(o => o.syncStatus === 'failed');
+    setPendingOrdersCount(pending.length);
+    setFailedOrdersCount(failed.length);
   };
 
   const saveOrderOffline = async (orderPayload) => {
@@ -250,8 +260,9 @@ export default function CashierMode() {
     }
 
     const orders = await getPendingOrders();
+    const pendingToSync = orders.filter(o => o.syncStatus !== 'failed');
 
-    for (let order of orders) {
+    for (let order of pendingToSync) {
       try {
         const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders`, {
           method: 'POST',
@@ -265,22 +276,35 @@ export default function CashierMode() {
           const errorText = await res.text();
           console.error(`Order ${order.localUUID} rejected by server:`, errorText);
           showToast(`Order failed to sync: ${errorText}`, 'error');
-          // Still delete it if it's a 4xx error so it doesn't loop forever
+          
           if (res.status >= 400 && res.status < 500) {
-            await deletePendingOrder(order.localUUID);
+            // Unrecoverable (e.g. price drift or validation error)
+            order.syncStatus = 'failed';
+            await savePendingOrder(order);
           } else {
-            order.retryCount += 1;
+            order.retryCount = (order.retryCount || 0) + 1;
+            if (order.retryCount >= 5) order.syncStatus = 'failed';
             await savePendingOrder(order);
           }
         }
       } catch (err) {
-        // Network error during flush, increment retry
-        order.retryCount += 1;
+        order.retryCount = (order.retryCount || 0) + 1;
+        if (order.retryCount >= 5) order.syncStatus = 'failed';
         await savePendingOrder(order);
       }
     }
     checkPendingCount();
     syncChannel.postMessage({ type: 'SYNC_COMPLETE' });
+  };
+
+  const clearFailedOrders = async () => {
+    if (window.confirm('Delete all permanently failed offline orders? These cannot be recovered.')) {
+      const orders = await getPendingOrders();
+      for (let o of orders) {
+        if (o.syncStatus === 'failed') await deletePendingOrder(o.localUUID);
+      }
+      checkPendingCount();
+    }
   };
 
   // --- PRINT LOGIC ---
@@ -377,6 +401,7 @@ export default function CashierMode() {
       splitPayments: paymentMethod === 'split' ? splitPayments : [],
       cashTendered: paymentMethod === 'cash' ? parseFloat(cashTendered || 0) : 0,
       customerName,
+      clientCalculatedTotal: total,
       createdAtLocal: new Date().toISOString()
     };
 
@@ -703,9 +728,15 @@ export default function CashierMode() {
 
             <div className="flex items-center space-x-4 shrink-0">
               {/* Network / Sync Status */}
-              <div className="flex items-center space-x-2 px-3 py-1 bg-gray-50 border border-gray-200 rounded-lg">
-                {isOnline ? <Wifi className="w-4 h-4 text-green-500" /> : <WifiOff className="w-4 h-4 text-red-500" />}
-                <span className="text-[10px] font-bold uppercase text-gray-500">{pendingOrdersCount > 0 ? `${pendingOrdersCount} Pending` : 'Synced'}</span>
+              <div 
+                onClick={failedOrdersCount > 0 ? clearFailedOrders : undefined}
+                className={`flex items-center space-x-2 px-3 py-1 border rounded-lg ${failedOrdersCount > 0 ? 'bg-red-50 border-red-200 cursor-pointer hover:bg-red-100' : 'bg-gray-50 border-gray-200'}`}
+                title={failedOrdersCount > 0 ? 'Click to clear failed syncs' : 'Network Status'}
+              >
+                {isOnline ? <Wifi className={`w-4 h-4 ${failedOrdersCount > 0 ? 'text-red-500' : 'text-green-500'}`} /> : <WifiOff className="w-4 h-4 text-red-500" />}
+                <span className={`text-[10px] font-bold uppercase ${failedOrdersCount > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                  {failedOrdersCount > 0 ? `${failedOrdersCount} Failed` : pendingOrdersCount > 0 ? `${pendingOrdersCount} Pending` : 'Synced'}
+                </span>
               </div>
 
               <button onClick={() => setIsEndingShift(true)} className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 text-[11px] font-bold uppercase"><SquareTerminal className="w-3.5 h-3.5" /><span>Close Register</span></button>
