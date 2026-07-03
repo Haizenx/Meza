@@ -35,13 +35,14 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '10kb' })); // Body parser with size limit
+app.use(express.urlencoded({ extended: true, limit: '10kb' })); // URL encoded parser
 app.use(cookieParser());
 
 // SECURITY MIDDLEWARE
 app.use(helmet()); // Set security HTTP headers
+// app.use(mongoSanitize()); // Disabled due to crash with req.query getter
+// app.use(xss()); // Disabled due to crash with req.query getter
 app.use(hpp()); // Prevent parameter pollution
-app.use(mongoSanitize()); // Prevent NoSQL Injection
-app.use(xss()); // Prevent XSS Attacks
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
