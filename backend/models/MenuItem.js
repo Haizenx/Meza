@@ -8,8 +8,10 @@ const menuItemSchema = new mongoose.Schema({
   photoUrl: { type: String }, // Cloudinary URL
   isAvailable: { type: Boolean, default: true },
   isArchived: { type: Boolean, default: false },
-  stockQuantity: { type: Number, default: 0 },
-  lowStockThreshold: { type: Number, default: 5 },
+  sizes: [{
+    name: { type: String, required: true },
+    price: { type: Number, required: true }
+  }],
   modifierGroups: [{
     name: { type: String, required: true },
     multiSelect: { type: Boolean, default: false },

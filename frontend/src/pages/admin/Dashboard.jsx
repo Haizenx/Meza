@@ -7,6 +7,7 @@ import { useSocket } from '../../context/SocketContext';
 export default function Dashboard() {
   const { token } = useAuth();
   const socket = useSocket();
+  const [timeframe, setTimeframe] = useState('daily');
   const [data, setData] = useState({
     today: { revenue: 0, orders: 0, aov: 0 },
     yesterday: { revenue: 0, orders: 0, aov: 0 },
@@ -17,7 +18,7 @@ export default function Dashboard() {
   });
 
   const fetchDashboardData = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/analytics/dashboard`, {
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/analytics/dashboard?timeframe=${timeframe}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -27,7 +28,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (token) fetchDashboardData();
-  }, [token]);
+  }, [token, timeframe]);
 
   // Real-time live sync
   useEffect(() => {
@@ -57,8 +58,8 @@ export default function Dashboard() {
   const aovChange = calcChange(data.today.aov, data.yesterday.aov);
 
   const stats = [
-    { name: "Today's Sales", value: `₱${data.today.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp, change: revChange.val, trend: revChange.dir, color: 'bg-green-50 text-green-600 border-green-100' },
-    { name: 'Total Orders', value: data.today.orders.toString(), icon: Receipt, change: ordChange.val, trend: ordChange.dir, color: 'bg-blue-50 text-blue-600 border-blue-100' },
+    { name: timeframe === 'daily' ? "Today's Sales" : timeframe === 'weekly' ? "This Week's Sales" : "This Month's Sales", value: `₱${data.today.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp, change: revChange.val, trend: revChange.dir, color: 'bg-green-50 text-green-600 border-green-100' },
+    { name: timeframe === 'daily' ? 'Total Orders' : 'Period Orders', value: data.today.orders.toString(), icon: Receipt, change: ordChange.val, trend: ordChange.dir, color: 'bg-blue-50 text-blue-600 border-blue-100' },
     { name: 'Average Order Value', value: `₱${data.today.aov.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: CreditCard, change: aovChange.val, trend: aovChange.dir, color: 'bg-purple-50 text-purple-600 border-purple-100' }
   ];
 
@@ -82,6 +83,15 @@ export default function Dashboard() {
           <p className="text-gray-500 text-sm mt-1">Live operational overview, sales trends, and real-time alerts.</p>
         </div>
         <div className="flex items-center space-x-3">
+          <select 
+            value={timeframe} 
+            onChange={(e) => setTimeframe(e.target.value)}
+            className="text-sm font-semibold border-gray-200 rounded-lg shadow-sm focus:ring-meza-primary focus:border-meza-primary"
+          >
+            <option value="daily">Daily View</option>
+            <option value="weekly">Weekly View</option>
+            <option value="monthly">Monthly View</option>
+          </select>
           <div className="flex items-center space-x-2 text-xs font-bold text-meza-primary bg-meza-primary/10 px-3 py-2 rounded-lg border border-meza-primary/20">
             <Activity className="w-3.5 h-3.5 animate-pulse" />
             <span>Live Sync Active</span>
@@ -108,7 +118,7 @@ export default function Dashboard() {
                 {stat.trend === 'down' && <ArrowDownRight className="w-3 h-3 mr-0.5" />}
                 {stat.change}
               </span>
-              <span className="text-gray-400 ml-2 font-medium">vs yesterday</span>
+              <span className="text-gray-400 ml-2 font-medium">vs previous period</span>
             </div>
           </div>
         ))}
@@ -123,7 +133,8 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.02)] border border-gray-100 p-5">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-meza-text tracking-tight flex items-center">
-                <TrendingUp className="w-4 h-4 text-meza-primary mr-2" /> 7-Day Revenue Trend
+                <TrendingUp className="w-4 h-4 text-meza-primary mr-2" /> 
+                {timeframe === 'daily' ? '7-Day' : timeframe === 'weekly' ? '5-Week' : '6-Month'} Revenue Trend
               </h3>
             </div>
             <div className="h-[250px] w-full">
@@ -149,7 +160,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.02)] border border-gray-100 overflow-hidden">
             <div className="p-5 border-b border-gray-100 bg-[#fcf9f5]">
               <h3 className="font-bold text-meza-text tracking-tight flex items-center">
-                <Flame className="w-4 h-4 text-orange-500 mr-2" /> Top Selling Items (7 Days)
+                <Flame className="w-4 h-4 text-orange-500 mr-2" /> Top Selling Items ({timeframe === 'daily' ? '7 Days' : timeframe === 'weekly' ? '5 Weeks' : '6 Months'})
               </h3>
             </div>
             <div className="overflow-x-auto">

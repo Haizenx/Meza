@@ -40,6 +40,8 @@ app.use(cookieParser());
 // SECURITY MIDDLEWARE
 app.use(helmet()); // Set security HTTP headers
 app.use(hpp()); // Prevent parameter pollution
+app.use(mongoSanitize()); // Prevent NoSQL Injection
+app.use(xss()); // Prevent XSS Attacks
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins

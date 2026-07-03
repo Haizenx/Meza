@@ -7,7 +7,10 @@ const { authenticate, authorize } = require('../middleware/auth');
 // Owner only
 router.get('/', authenticate, authorize('owner'), async (req, res) => {
   try {
-    const recipes = await Recipe.find().populate('ingredients.ingredientId');
+    const filter = {};
+    if (req.query.menuItemId) filter.menuItemId = req.query.menuItemId;
+    
+    const recipes = await Recipe.find(filter).populate('ingredients.ingredientId');
     res.json(recipes);
   } catch (err) {
     res.status(500).send('Server error');
@@ -18,17 +21,18 @@ router.get('/', authenticate, authorize('owner'), async (req, res) => {
 // Owner only
 router.post('/', authenticate, authorize('owner'), async (req, res) => {
   try {
-    const { menuItemId, ingredients } = req.body;
+    const { menuItemId, size, ingredients } = req.body;
+    const recipeSize = size || 'Regular';
     
     // UPSERT logic
-    const existing = await Recipe.findOne({ menuItemId });
+    const existing = await Recipe.findOne({ menuItemId, size: recipeSize });
     if (existing) {
       existing.ingredients = ingredients;
       await existing.save();
       return res.json(existing);
     }
 
-    const recipe = new Recipe({ menuItemId, ingredients });
+    const recipe = new Recipe({ menuItemId, size: recipeSize, ingredients });
     await recipe.save();
     res.status(201).json(recipe);
   } catch (err) {

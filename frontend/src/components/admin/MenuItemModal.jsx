@@ -9,7 +9,11 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
   const [photoUrl, setPhotoUrl] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   
-  const [ingredients, setIngredients] = useState([]);
+  const [hasSizes, setHasSizes] = useState(false);
+  const [sizes, setSizes] = useState([{ name: 'Regular', price: '' }]);
+  const [recipes, setRecipes] = useState({ 'Regular': [] });
+  const [activeRecipeSize, setActiveRecipeSize] = useState('Regular');
+  
   const [modifierGroups, setModifierGroups] = useState([]);
   
   const [isLoading, setIsLoading] = useState(false);
@@ -25,21 +29,30 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setPhotoUrl(initialData.photoUrl || '');
         setIsAvailable(initialData.isAvailable !== false);
         setModifierGroups(initialData.modifierGroups || []);
+        const itemHasSizes = initialData.sizes && initialData.sizes.length > 0;
+        setHasSizes(itemHasSizes);
+        setSizes(itemHasSizes ? initialData.sizes : [{ name: 'Regular', price: '' }]);
         
-        // Fetch recipe if editing
+        // Fetch recipes
         setIsLoading(true);
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}/cost`, {
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes?menuItemId=${initialData._id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
         .then(data => {
-          if (data.ingredientsBreakdown) {
-            setIngredients(data.ingredientsBreakdown.map(ing => ({
-              ingredientId: ing.ingredientId,
-              quantity: ing.quantity,
-              unit: ing.unit
-            })));
+          const recMap = {};
+          if (data && data.length > 0) {
+            data.forEach(r => {
+              recMap[r.size] = r.ingredients.map(ing => ({
+                ingredientId: ing.ingredientId._id || ing.ingredientId,
+                quantity: ing.quantity,
+                unit: ing.unit
+              }));
+            });
           }
+          if (Object.keys(recMap).length === 0) recMap['Regular'] = [];
+          setRecipes(recMap);
+          setActiveRecipeSize(itemHasSizes ? initialData.sizes[0].name : 'Regular');
         })
         .catch(console.error)
         .finally(() => setIsLoading(false));
@@ -51,36 +64,59 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         setDescription('');
         setPhotoUrl('');
         setIsAvailable(true);
-        setIngredients([]);
+        setHasSizes(false);
+        setSizes([{ name: 'Regular', price: '' }]);
+        setRecipes({ 'Regular': [] });
+        setActiveRecipeSize('Regular');
         setModifierGroups([]);
         setIsLoading(false);
       }
     }
   }, [isOpen, initialData, token]);
 
+  // --- Sizes Handlers ---
+  const handleAddSize = () => {
+    const newSize = { name: '', price: '' };
+    setSizes([...sizes, newSize]);
+  };
+  const handleRemoveSize = (index) => {
+    setSizes(sizes.filter((_, i) => i !== index));
+  };
+  const handleSizeChange = (index, field, value) => {
+    const newSizes = [...sizes];
+    newSizes[index][field] = value;
+    setSizes(newSizes);
+  };
+
   // --- Recipe Handlers ---
   const handleAddIngredient = () => {
-    setIngredients([...ingredients, { ingredientId: '', quantity: '', unit: 'g' }]);
+    const newRecipes = { ...recipes };
+    if (!newRecipes[activeRecipeSize]) newRecipes[activeRecipeSize] = [];
+    newRecipes[activeRecipeSize] = [...newRecipes[activeRecipeSize], { ingredientId: '', quantity: '', unit: 'g' }];
+    setRecipes(newRecipes);
   };
 
   const handleRemoveIngredient = (index) => {
-    setIngredients(ingredients.filter((_, i) => i !== index));
+    const newRecipes = { ...recipes };
+    newRecipes[activeRecipeSize] = newRecipes[activeRecipeSize].filter((_, i) => i !== index);
+    setRecipes(newRecipes);
   };
 
   const handleIngredientChange = (index, field, value) => {
-    const newIngredients = [...ingredients];
-    newIngredients[index][field] = value;
+    const newRecipes = { ...recipes };
+    if (!newRecipes[activeRecipeSize]) newRecipes[activeRecipeSize] = [];
+    newRecipes[activeRecipeSize][index][field] = value;
     
     if (field === 'ingredientId') {
       const selectedRaw = rawIngredients.find(r => r._id === value);
       if (selectedRaw) {
         const pUnit = (selectedRaw.purchaseUnit || '').toLowerCase();
-        if (pUnit === 'kg') newIngredients[index].unit = 'g';
-        else if (pUnit === 'l' || pUnit === 'liter') newIngredients[index].unit = 'ml';
-        else newIngredients[index].unit = selectedRaw.purchaseUnit;
+        if (pUnit === 'kg') newRecipes[activeRecipeSize][index].unit = 'g';
+        else if (pUnit === 'l' || pUnit === 'liter') newRecipes[activeRecipeSize][index].unit = 'ml';
+        else newRecipes[activeRecipeSize][index].unit = selectedRaw.purchaseUnit;
       }
     }
-    setIngredients(newIngredients);
+    setRecipes(newRecipes);
   };
 
   // --- Modifier Handlers ---
@@ -132,7 +168,9 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         }));
 
       // 1. Save Menu Item
-      const menuPayload = { name, category, price: parseFloat(price), description, photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
+      const cleanedSizes = hasSizes ? sizes.filter(s => s.name.trim() !== '').map(s => ({ name: s.name, price: parseFloat(s.price) || 0 })) : [];
+      const basePrice = hasSizes && cleanedSizes.length > 0 ? cleanedSizes[0].price : parseFloat(price) || 0;
+      const menuPayload = { name, category, price: basePrice, sizes: cleanedSizes, description, photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
       const menuMethod = initialData ? 'PUT' : 'POST';
       const menuUrl = initialData 
         ? `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}`
@@ -147,23 +185,26 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
       if (!menuRes.ok) throw new Error('Failed to save menu item');
       const savedMenu = await menuRes.json();
 
-      // 2. Save Recipe (only if there are valid ingredients)
-      const validIngredients = ingredients.filter(i => i.ingredientId && parseFloat(i.quantity) > 0);
-      
-      const recipeRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          menuItemId: savedMenu._id,
-          ingredients: validIngredients.map(i => ({
-            ingredientId: i.ingredientId,
-            quantity: parseFloat(i.quantity),
-            unit: i.unit
-          }))
-        })
-      });
-
-      if (!recipeRes.ok) throw new Error('Failed to save recipe');
+      // 2. Save Recipes
+      const sizesToSave = (hasSizes && cleanedSizes.length > 0) ? cleanedSizes.map(s => s.name) : ['Regular'];
+      for (const s of sizesToSave) {
+        const ingList = recipes[s] || [];
+        const validIngredients = ingList.filter(i => i.ingredientId && parseFloat(i.quantity) > 0);
+        
+        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({
+            menuItemId: savedMenu._id,
+            size: s,
+            ingredients: validIngredients.map(i => ({
+              ingredientId: i.ingredientId,
+              quantity: parseFloat(i.quantity),
+              unit: i.unit
+            }))
+          })
+        });
+      }
 
       if (onSuccess) onSuccess();
       onClose();
@@ -224,16 +265,51 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
                       <option value="Pastries">Pastries</option>
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Price</label>
-                    <div className="relative">
-                      <DollarSign className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input 
-                        type="number" step="any" required value={price} onChange={e => setPrice(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary font-semibold text-sm"
-                        placeholder="0.00"
-                      />
-                    </div>
+                  <div className="md:col-span-2 space-y-3 pt-2">
+                    <label className="flex items-center space-x-2 text-sm font-bold text-meza-text">
+                      <input type="checkbox" checked={hasSizes} onChange={e => setHasSizes(e.target.checked)} className="rounded text-meza-primary focus:ring-meza-primary" />
+                      <span>Item has multiple sizes (e.g. Regular, Large)</span>
+                    </label>
+
+                    {hasSizes ? (
+                      <div className="bg-white p-4 rounded-xl border border-gray-200 space-y-3">
+                        {sizes.map((s, idx) => (
+                          <div key={idx} className="flex items-center space-x-3">
+                            <input 
+                              type="text" required placeholder="Size Name (e.g. Large)" 
+                              value={s.name} onChange={e => handleSizeChange(idx, 'name', e.target.value)}
+                              className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary font-semibold text-sm"
+                            />
+                            <div className="relative w-32">
+                              <DollarSign className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                              <input 
+                                type="number" step="any" min="0" required placeholder="0.00" 
+                                value={s.price} onChange={e => handleSizeChange(idx, 'price', e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary font-semibold text-sm"
+                              />
+                            </div>
+                            <button type="button" onClick={() => handleRemoveSize(idx)} disabled={sizes.length === 1} className="p-2 text-gray-400 hover:text-red-500 rounded-lg disabled:opacity-50">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button type="button" onClick={handleAddSize} className="text-xs font-bold text-meza-primary hover:text-meza-primary-hover flex items-center space-x-1">
+                          <Plus className="w-3 h-3" /><span>Add another size</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 w-1/2">
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Base Price</label>
+                        <div className="relative">
+                          <DollarSign className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input 
+                            type="number" step="any" min="0" required value={price} onChange={e => setPrice(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary font-semibold text-sm"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Photo URL</label>
@@ -345,14 +421,28 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
                   </button>
                 </div>
 
-                {ingredients.length === 0 ? (
+                {hasSizes && (
+                  <div className="flex space-x-2 border-b border-gray-200 pb-2 overflow-x-auto">
+                    {sizes.map(s => (
+                      <button 
+                        key={s.name} type="button"
+                        onClick={() => setActiveRecipeSize(s.name || 'Regular')}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${activeRecipeSize === (s.name || 'Regular') ? 'bg-meza-text text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                      >
+                        {s.name || 'Unnamed Size'} Recipe
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {(!recipes[activeRecipeSize] || recipes[activeRecipeSize].length === 0) ? (
                   <div className="text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                    <p className="text-sm font-bold text-gray-400">No ingredients added.</p>
+                    <p className="text-sm font-bold text-gray-400">No ingredients added for {activeRecipeSize}.</p>
                     <p className="text-xs text-gray-400 mt-1">This item will not deduct raw inventory when sold.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {ingredients.map((ing, idx) => (
+                    {recipes[activeRecipeSize].map((ing, idx) => (
                       <div key={idx} className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
                         <div className="flex-1">
                           <select 
@@ -367,7 +457,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
                         </div>
                         <div className="w-24">
                           <input 
-                            type="number" step="any" required value={ing.quantity} onChange={e => handleIngredientChange(idx, 'quantity', e.target.value)}
+                            type="number" step="any" min="0" required value={ing.quantity} onChange={e => handleIngredientChange(idx, 'quantity', e.target.value)}
                             className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg outline-none focus:border-meza-primary font-semibold text-sm text-center"
                             placeholder="Qty"
                           />

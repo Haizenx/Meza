@@ -3,6 +3,7 @@ const router = express.Router();
 const Order = require('../models/Order');
 const MenuItem = require('../models/MenuItem');
 const Recipe = require('../models/Recipe');
+const Transaction = require('../models/Transaction');
 const { authenticate, authorize } = require('../middleware/auth');
 
 // GET /api/analytics/sales
@@ -12,14 +13,14 @@ router.get('/sales', authenticate, authorize('owner', 'manager'), async (req, re
     const today = new Date();
     today.setHours(0,0,0,0);
 
-    // MongoDB Aggregation Pipeline for server-side computing
-    const salesData = await Order.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: today } } },
+    // Compute from immutable Transaction ledger for BIR compliance
+    const salesData = await Transaction.aggregate([
+      { $match: { timestamp: { $gte: today } } },
       { $group: {
           _id: null,
           totalRevenue: { $sum: '$total' },
-          orderCount: { $sum: 1 },
-          avgOrderValue: { $avg: '$total' }
+          orderCount: { $sum: { $cond: [{ $eq: ['$type', 'sale'] }, 1, 0] } }, // Only count sales, not voids
+          avgOrderValue: { $avg: '$total' } // Note: this will factor in negatives, which is technically correct net AOV
       }}
     ]);
 
@@ -129,41 +130,80 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
   try {
     const Shift = require('../models/Shift');
     const Ingredient = require('../models/Ingredient');
+    const timeframe = req.query.timeframe || 'daily'; // daily, weekly, monthly
     
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    let currentStart, previousStart, previousEnd, trendStart, trendDays, trendFormat, trendGroupBy;
+
+    if (timeframe === 'monthly') {
+      currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      previousEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      trendStart = new Date(now.getFullYear(), now.getMonth() - 5, 1); // 6 months trend
+      trendDays = 6;
+      trendFormat = '%Y-%m';
+      trendGroupBy = { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } };
+    } else if (timeframe === 'weekly') {
+      // Assuming week starts on Sunday
+      const dayOfWeek = now.getDay();
+      currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+      previousStart = new Date(currentStart);
+      previousStart.setDate(previousStart.getDate() - 7);
+      previousEnd = new Date(currentStart);
+      previousEnd.setMilliseconds(-1);
+      trendStart = new Date(currentStart);
+      trendStart.setDate(trendStart.getDate() - 28); // 5 weeks trend
+      trendDays = 5;
+      trendFormat = '%Y-%U'; // week number
+      trendGroupBy = { year: { $year: '$createdAt' }, week: { $week: '$createdAt' } };
+    } else { // daily
+      currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      previousStart = new Date(currentStart);
+      previousStart.setDate(previousStart.getDate() - 1);
+      previousEnd = new Date(currentStart);
+      previousEnd.setMilliseconds(-1);
+      trendStart = new Date(currentStart);
+      trendStart.setDate(trendStart.getDate() - 6); // 7 days trend
+      trendDays = 7;
+      trendFormat = '%Y-%m-%d';
+      trendGroupBy = { year: { $year: '$createdAt' }, month: { $month: '$createdAt' }, day: { $dayOfMonth: '$createdAt' } };
+    }
+
+    // 1. Current & Previous Stats (from Transaction Ledger)
+    const currentStatsPromise = Transaction.aggregate([
+      { $match: { timestamp: { $gte: currentStart } } },
+      { $group: { _id: null, revenue: { $sum: '$total' }, orders: { $sum: { $cond: [{ $eq: ['$type', 'sale'] }, 1, 0] } }, aov: { $avg: '$total' } } }
+    ]);
+
+    const previousStatsPromise = Transaction.aggregate([
+      { $match: { timestamp: { $gte: previousStart, $lte: previousEnd } } },
+      { $group: { _id: null, revenue: { $sum: '$total' }, orders: { $sum: { $cond: [{ $eq: ['$type', 'sale'] }, 1, 0] } }, aov: { $avg: '$total' } } }
+    ]);
+
+    // 2. Trend (from Transaction Ledger)
+    const trendGroupByTx = { year: { $year: '$timestamp' }, month: { $month: '$timestamp' }, day: { $dayOfMonth: '$timestamp' } };
+    if (timeframe === 'monthly') {
+      trendGroupByTx.week = undefined;
+      trendGroupByTx.day = undefined;
+    } else if (timeframe === 'weekly') {
+      trendGroupByTx.week = { $week: '$timestamp' };
+      trendGroupByTx.day = undefined;
+    }
     
-    const sevenDaysAgo = new Date(todayStart);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-
-    // 1. Today & Yesterday Stats
-    const todayStatsPromise = Order.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: todayStart } } },
-      { $group: { _id: null, revenue: { $sum: '$total' }, orders: { $sum: 1 }, aov: { $avg: '$total' } } }
-    ]);
-
-    const yesterdayStatsPromise = Order.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: yesterdayStart, $lt: todayStart } } },
-      { $group: { _id: null, revenue: { $sum: '$total' }, orders: { $sum: 1 }, aov: { $avg: '$total' } } }
-    ]);
-
-    // 2. 7-Day Trend
-    const sevenDayTrendPromise = Order.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: sevenDaysAgo } } },
+    const trendPromise = Transaction.aggregate([
+      { $match: { timestamp: { $gte: trendStart } } },
       {
         $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          _id: trendGroupByTx,
           revenue: { $sum: '$total' }
         }
       },
-      { $sort: { _id: 1 } }
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.week': 1, '_id.day': 1 } }
     ]);
 
-    // 3. Top Items (Last 7 days)
+    // 3. Top Items
     const topItemsPromise = Order.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: sevenDaysAgo } } },
+      { $match: { status: 'completed', createdAt: { $gte: trendStart } } },
       { $unwind: '$items' },
       { $group: {
           _id: '$items.menuItemId',
@@ -175,42 +215,41 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
       { $limit: 6 }
     ]);
 
-    // 4. Low Stock
-    const lowMenuItemsPromise = MenuItem.find({ $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] }, isArchived: false }).lean();
+    // 4. Low Stock (Only ingredients now, menu items are derived)
     const lowIngredientsPromise = Ingredient.find({ $expr: { $lte: ['$stockQuantity', '$lowStockThreshold'] } }).lean();
 
     // 5. Active Shifts
     const activeShiftsPromise = Shift.find({ status: 'open' }).populate('staff', 'name').lean();
 
     const [
-      todayRes, yesterdayRes, trendRes, topItems, lowMenu, lowIng, activeShifts
+      currentRes, previousRes, trendRes, topItems, lowIng, activeShifts
     ] = await Promise.all([
-      todayStatsPromise, yesterdayStatsPromise, sevenDayTrendPromise, topItemsPromise, lowMenuItemsPromise, lowIngredientsPromise, activeShiftsPromise
+      currentStatsPromise, previousStatsPromise, trendPromise, topItemsPromise, lowIngredientsPromise, activeShiftsPromise
     ]);
 
-    const today = todayRes[0] || { revenue: 0, orders: 0, aov: 0 };
-    const yesterday = yesterdayRes[0] || { revenue: 0, orders: 0, aov: 0 };
+    const today = currentRes[0] || { revenue: 0, orders: 0, aov: 0 }; // using 'today' key for frontend compatibility
+    const yesterday = previousRes[0] || { revenue: 0, orders: 0, aov: 0 };
 
-    // Format trend data (fill in missing days with 0)
-    const sevenDayTrend = [];
-    for (let i = 0; i <= 6; i++) {
-      const d = new Date(sevenDaysAgo);
-      d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
-      const match = trendRes.find(t => t._id === dateStr);
-      
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-      sevenDayTrend.push({
-        date: dateStr,
-        day: dayName,
-        revenue: match ? match.revenue : 0
-      });
-    }
+    // Format trend data (just return the raw grouped data and let frontend handle empty periods or formatting)
+    // For simplicity, we'll map the grouped _id to a string date/label.
+    const sevenDayTrend = trendRes.map(t => {
+      let label = '';
+      if (timeframe === 'monthly') {
+        label = `${t._id.year}-${String(t._id.month).padStart(2, '0')}`;
+      } else if (timeframe === 'weekly') {
+        label = `Week ${t._id.week}, ${t._id.year}`;
+      } else {
+        label = `${t._id.year}-${String(t._id.month).padStart(2, '0')}-${String(t._id.day).padStart(2, '0')}`;
+      }
+      return {
+        date: label,
+        day: label, // fallback
+        revenue: t.revenue
+      };
+    });
 
-    const lowStockItems = [
-      ...lowMenu.map(m => ({ _id: m._id, name: m.name, stock: m.stockQuantity || 0, type: 'Finished Good' })),
-      ...lowIng.map(i => ({ _id: i._id, name: i.name, stock: i.stockQuantity || 0, type: 'Raw Ingredient' }))
-    ].sort((a,b) => a.stock - b.stock).slice(0, 5); // top 5 lowest
+    const lowStockItems = lowIng.map(i => ({ _id: i._id, name: i.name, stock: i.stockQuantity || 0, type: 'Raw Ingredient' }))
+      .sort((a,b) => a.stock - b.stock).slice(0, 5); // top 5 lowest
 
     res.json({
       today,

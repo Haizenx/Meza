@@ -3,6 +3,13 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { authenticate, authorize } = require('../middleware/auth');
+const { body, validationResult } = require('express-validator');
+
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: 'Validation error', errors: errors.array() });
+  next();
+};
 
 // Get all users (Admin/Manager only)
 router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) => {
@@ -15,7 +22,13 @@ router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) =>
 });
 
 // Create a new user (Owner only)
-router.post('/', authenticate, authorize('owner'), async (req, res) => {
+router.post('/', authenticate, authorize('owner'), [
+  body('name').notEmpty().trim(),
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+  body('role').isIn(['cashier', 'manager', 'owner']),
+  validate
+], async (req, res) => {
   try {
     const { name, email, password, role, pin } = req.body;
     
@@ -50,7 +63,11 @@ router.post('/', authenticate, authorize('owner'), async (req, res) => {
 });
 
 // Update own profile (Any authenticated user)
-router.put('/profile', authenticate, async (req, res) => {
+router.put('/profile', authenticate, [
+  body('email').optional().isEmail().normalizeEmail(),
+  body('password').optional().isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+  validate
+], async (req, res) => {
   try {
     const { name, email, password, pin } = req.body;
     
@@ -84,7 +101,12 @@ router.put('/profile', authenticate, async (req, res) => {
 });
 
 // Update user (Owner only)
-router.put('/:id', authenticate, authorize('owner'), async (req, res) => {
+router.put('/:id', authenticate, authorize('owner'), [
+  body('email').optional().isEmail().normalizeEmail(),
+  body('password').optional().isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+  body('role').optional().isIn(['cashier', 'manager', 'owner']),
+  validate
+], async (req, res) => {
   try {
     const { name, email, role, isActive, password, pin } = req.body;
     

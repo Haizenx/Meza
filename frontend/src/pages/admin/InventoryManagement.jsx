@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { PackageCheck, AlertTriangle, Search, ArrowUp, ArrowDown, X, Coffee, Layers, Tag, Beaker } from 'lucide-react';
+import { PackageCheck, AlertTriangle, Search, ArrowUp, ArrowDown, X, Coffee, Layers, Tag, Beaker, Upload, History } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import MenuItemModal from '../../components/admin/MenuItemModal';
+import Papa from 'papaparse';
 
 export default function InventoryManagement() {
   const { token } = useAuth();
 
-  const [activeTab, setActiveTab] = useState('finished'); // 'finished' | 'raw'
+  const [activeTab, setActiveTab] = useState('finished'); // 'finished' | 'raw' | 'history'
 
   const [menuItems, setMenuItems] = useState([]);
   const [ingredients, setIngredients] = useState([]);
+  const [historyData, setHistoryData] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const fileInputRef = React.useRef(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
@@ -32,9 +35,14 @@ export default function InventoryManagement() {
       .then(setMenuItems)
       .catch(console.error);
 
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/inventory`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setIngredients)
+      .catch(console.error);
+
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory/history`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
+      .then(setHistoryData)
       .catch(console.error);
   };
 
@@ -161,9 +169,53 @@ export default function InventoryManagement() {
         fetchData();
         handleCloseModal();
       } else {
-        alert("Failed to create.");
+        const errorData = await res.json();
+        alert(`Failed to create: ${errorData.message || 'Unknown error'}`);
       }
     } catch (err) { console.error(err); }
+  };
+
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const items = results.data.map(row => ({
+          name: row['Name'] || row['name'],
+          purchaseUnit: row['Purchase Unit'] || row['purchaseUnit'] || row['Unit'] || 'pcs',
+          unitCost: parseFloat(row['Unit Cost'] || row['unitCost'] || 0),
+          stockQuantity: parseFloat(row['Initial Stock'] || row['stockQuantity'] || 0),
+          lowStockThreshold: parseFloat(row['Low Par Alert'] || row['lowStockThreshold'] || 5)
+        })).filter(i => i.name);
+
+        if (items.length === 0) {
+          return alert('No valid items found in CSV. Please check headers.');
+        }
+
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ items })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            alert(`Import complete: ${data.added} added, ${data.updated} updated. Errors: ${data.errors.length}`);
+            fetchData();
+          } else {
+            alert('Import failed.');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Import failed due to server error.');
+        }
+      }
+    });
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const openRecipeCosting = async (item) => {
@@ -188,12 +240,14 @@ export default function InventoryManagement() {
   const filteredItems = currentList.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Grouping for Finished Goods
-  const groupedMenu = filteredItems.reduce((acc, item) => {
+  const groupedMenu = menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase())).reduce((acc, item) => {
     const cat = item.category || 'Uncategorized';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(item);
     return acc;
   }, {});
+
+  const uniqueUnits = [...new Set(ingredients.map(i => i.purchaseUnit).filter(Boolean))];
 
   return (
     <div className="space-y-6 relative">
@@ -220,7 +274,16 @@ export default function InventoryManagement() {
           <Beaker className="w-4 h-4" />
           <span>Raw Ingredients</span>
         </button>
+        <button
+          onClick={() => { setActiveTab('history'); setSearchQuery(''); }}
+          className={`px-5 py-2.5 rounded-lg flex items-center space-x-2 font-bold text-sm transition-all ${activeTab === 'history' ? 'bg-meza-text text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+        >
+          <History className="w-4 h-4" />
+          <span>Restock History</span>
+        </button>
       </div>
+
+      <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} hidden />
 
       <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
         {/* Toolbar */}
@@ -237,17 +300,70 @@ export default function InventoryManagement() {
           </div>
           <div className="flex items-center space-x-3">
             <div className="text-xs text-gray-400 font-bold uppercase tracking-wider bg-white px-3 py-1.5 rounded-lg border border-gray-200 hidden md:block">
-              Total Items: {filteredItems.length}
+              Total Items: {activeTab === 'history' ? historyData.length : filteredItems.length}
             </div>
-            <button onClick={openCreateModal} className="px-4 py-2 bg-meza-primary text-white rounded-lg text-sm font-bold shadow-md hover:bg-meza-primary-hover transition-colors">
-              + New {activeTab === 'finished' ? 'Menu Item' : 'Ingredient'}
-            </button>
+            {activeTab === 'raw' && (
+              <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold shadow-sm hover:bg-gray-200 transition-colors flex items-center space-x-2">
+                <Upload className="w-4 h-4" /><span>Import CSV</span>
+              </button>
+            )}
+            {activeTab !== 'history' && (
+              <button onClick={openCreateModal} className="px-4 py-2 bg-meza-primary text-white rounded-lg text-sm font-bold shadow-md hover:bg-meza-primary-hover transition-colors">
+                + New {activeTab === 'finished' ? 'Menu Item' : 'Ingredient'}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Dynamic Table based on Tab */}
         <div className="overflow-x-auto">
-          {activeTab === 'finished' ? (
+          {activeTab === 'history' ? (
+            <div className="p-4">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-white border-b border-gray-100 text-gray-400 text-[11px] font-bold uppercase tracking-widest">
+                  <tr>
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Ingredient</th>
+                    <th className="px-6 py-4 text-right">Quantity</th>
+                    <th className="px-6 py-4 text-right">Total Cost</th>
+                    <th className="px-6 py-4">Supplier</th>
+                    <th className="px-6 py-4">Received By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {historyData.map(record => (
+                    <tr key={record._id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4 font-medium text-gray-600">
+                        {new Date(record.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 font-bold text-meza-text">
+                        {record.ingredientId?.name || 'Unknown Item'}
+                      </td>
+                      <td className="px-6 py-4 text-right font-black text-meza-primary">
+                        {record.quantityReceived}
+                      </td>
+                      <td className="px-6 py-4 text-right font-bold text-gray-700">
+                        ₱{record.totalCostPaid.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 text-gray-500">
+                        {record.supplierName || '-'}
+                      </td>
+                      <td className="px-6 py-4 text-gray-500">
+                        {record.receivedBy?.name || 'Unknown User'}
+                      </td>
+                    </tr>
+                  ))}
+                  {historyData.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="py-16 text-center text-gray-400 font-bold text-sm">
+                        No restock history available.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : activeTab === 'finished' ? (
             // FINISHED GOODS VIEW
             <div className="p-4 space-y-8">
               {Object.keys(groupedMenu).map(category => (
@@ -279,17 +395,14 @@ export default function InventoryManagement() {
                           <div className="flex flex-col space-y-2 flex-1 justify-end mt-4">
                             <div className="flex justify-between items-end">
                               <div className="flex items-baseline space-x-1">
-                                <span className={`font-black text-2xl tracking-tight leading-none ${stock === 0 ? 'text-red-600' : isLowStock ? 'text-yellow-600' : 'text-meza-text'}`}>
-                                  {stock.toLocaleString()}
+                                <span className={`font-black text-2xl tracking-tight leading-none ${item.calculatedStock === 0 ? 'text-red-600' : 'text-meza-text'}`}>
+                                  {item.calculatedStock !== null ? item.calculatedStock.toLocaleString() : '-'}
                                 </span>
-                                <span className="text-gray-400 font-bold text-[10px] uppercase">units</span>
+                                <span className="text-gray-400 font-bold text-[10px] uppercase">portions</span>
                               </div>
-                              <button onClick={(e) => { e.stopPropagation(); openAdjustModal(item); }} className="px-3 py-1.5 bg-gray-100 hover:bg-meza-primary hover:text-white text-gray-600 rounded-lg text-xs font-bold transition-colors">
-                                Adjust
-                              </button>
                             </div>
                             <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${stock === 0 ? 'bg-red-500' : isLowStock ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${stock === 0 ? 100 : progressPercent}%` }}></div>
+                              <div className={`h-full rounded-full ${item.calculatedStock === 0 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${item.calculatedStock === 0 ? 100 : item.calculatedStock !== null ? 100 : 0}%` }}></div>
                             </div>
                           </div>
                         </div>
@@ -512,7 +625,7 @@ export default function InventoryManagement() {
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Sell Price</label>
-                        <input type="number" step="any" required value={createData.price} onChange={e => setCreateData({ ...createData, price: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0.00" />
+                        <input type="number" step="any" min="0" required value={createData.price} onChange={e => setCreateData({ ...createData, price: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0.00" />
                       </div>
                     </div>
                   </>
@@ -521,11 +634,16 @@ export default function InventoryManagement() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Purchase Unit</label>
-                        <input type="text" required value={createData.purchaseUnit} onChange={e => setCreateData({ ...createData, purchaseUnit: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="kg, L, box..." />
+                        <input type="text" list="unit-options" required value={createData.purchaseUnit} onChange={e => setCreateData({ ...createData, purchaseUnit: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="Select or type..." />
+                        <datalist id="unit-options">
+                          {uniqueUnits.map(unit => (
+                            <option key={unit} value={unit} />
+                          ))}
+                        </datalist>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Unit Cost</label>
-                        <input type="number" step="any" required value={createData.unitCost} onChange={e => setCreateData({ ...createData, unitCost: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0.00" />
+                        <input type="number" step="any" min="0" required value={createData.unitCost} onChange={e => setCreateData({ ...createData, unitCost: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0.00" />
                       </div>
                     </div>
                   </>
@@ -534,11 +652,11 @@ export default function InventoryManagement() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Initial Stock</label>
-                    <input type="number" step="any" required value={createData.stockQuantity} onChange={e => setCreateData({ ...createData, stockQuantity: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0" />
+                    <input type="number" step="any" min="0" required value={createData.stockQuantity} onChange={e => setCreateData({ ...createData, stockQuantity: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="0" />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Low Par Alert</label>
-                    <input type="number" step="any" required value={createData.lowStockThreshold} onChange={e => setCreateData({ ...createData, lowStockThreshold: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="5" />
+                    <input type="number" step="any" min="0" required value={createData.lowStockThreshold} onChange={e => setCreateData({ ...createData, lowStockThreshold: e.target.value })} className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-meza-primary text-sm font-medium text-meza-text" placeholder="5" />
                   </div>
                 </div>
 

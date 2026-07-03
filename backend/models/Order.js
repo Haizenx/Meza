@@ -7,6 +7,7 @@ const orderSchema = new mongoose.Schema({
     nameAtSale: { type: String },
     priceAtSale: { type: Number },
     quantity: { type: Number },
+    size: { type: String },
     note: { type: String },
     modifiers: [{
       name: { type: String },

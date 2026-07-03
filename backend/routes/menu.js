@@ -2,6 +2,38 @@ const express = require('express');
 const router = express.Router();
 const MenuItem = require('../models/MenuItem');
 const { authenticate, authorize } = require('../middleware/auth');
+const { z } = require('zod');
+const { validateZod } = require('../middleware/validate');
+
+const sizeSchema = z.object({
+  name: z.string().min(1),
+  price: z.number().min(0)
+});
+
+const modifierOptionSchema = z.object({
+  name: z.string().min(1),
+  price: z.number().min(0).optional()
+});
+
+const modifierGroupSchema = z.object({
+  name: z.string().min(1),
+  required: z.boolean().optional(),
+  options: z.array(modifierOptionSchema)
+});
+
+const menuSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(100),
+    category: z.string().min(1).max(50),
+    price: z.number().min(0),
+    photoUrl: z.string().url().optional().or(z.literal('')),
+    isAvailable: z.boolean().optional(),
+    isArchived: z.boolean().optional(),
+    sizes: z.array(sizeSchema).optional(),
+    modifierGroups: z.array(modifierGroupSchema).optional()
+  })
+});
+
 
 // GET /api/menu/public
 // Accessible without token for QR Ordering
@@ -25,8 +57,10 @@ router.get('/', authenticate, async (req, res) => {
     
     // Calculate real-time available stock
     for (let item of items) {
-      const recipe = await Recipe.findOne({ menuItemId: item._id }).lean();
-      if (recipe && recipe.ingredients && recipe.ingredients.length > 0) {
+      const recipes = await Recipe.find({ menuItemId: item._id }).lean();
+      
+      const calculateStockForRecipe = async (recipe) => {
+        if (!recipe || !recipe.ingredients || recipe.ingredients.length === 0) return null;
         let maxPortions = Infinity;
         for (let ri of recipe.ingredients) {
           const ing = await Ingredient.findById(ri.ingredientId).lean();
@@ -40,15 +74,30 @@ router.get('/', authenticate, async (req, res) => {
             if (recUnit === 'l' && purUnit === 'ml') multiplier = 1000;
             
             const reqQty = ri.quantity * multiplier;
-            const portions = Math.floor(ing.stockQuantity / reqQty);
+            const portions = Math.floor((ing.stockQuantity || 0) / reqQty);
             if (portions < maxPortions) maxPortions = portions;
           } else {
             maxPortions = 0;
           }
         }
-        item.calculatedStock = maxPortions === Infinity ? 0 : Math.max(0, maxPortions);
+        return maxPortions === Infinity ? 0 : Math.max(0, maxPortions);
+      };
+
+      if (item.sizes && item.sizes.length > 0) {
+        // Calculate stock for each size
+        item.calculatedStock = 0; // Total stock could be max or 0, but usually we just want it per size
+        for (let size of item.sizes) {
+          const sizeRecipe = recipes.find(r => r.size === size.name) || recipes[0];
+          size.calculatedStock = await calculateStockForRecipe(sizeRecipe);
+          // Set base item calculated stock to the sum or max? 
+          // Let's set the base calculatedStock to the maximum available among sizes so it shows "Available" if at least one size is.
+          if (size.calculatedStock !== null && size.calculatedStock > item.calculatedStock) {
+            item.calculatedStock = size.calculatedStock;
+          }
+        }
       } else {
-        item.calculatedStock = null; // No recipe, stock is unmanaged or physical
+        // No sizes, just calculate for the first recipe
+        item.calculatedStock = await calculateStockForRecipe(recipes[0]);
       }
     }
 
@@ -60,10 +109,10 @@ router.get('/', authenticate, async (req, res) => {
 
 // POST /api/menu
 // Owner & Manager only
-router.post('/', authenticate, authorize('owner', 'manager'), async (req, res) => {
+router.post('/', authenticate, authorize('owner', 'manager'), validateZod(menuSchema), async (req, res) => {
   try {
-    const { name, category, price, photoUrl, isAvailable, stockQuantity, lowStockThreshold } = req.body;
-    const newItem = new MenuItem({ name, category, price, photoUrl, isAvailable, stockQuantity, lowStockThreshold });
+    const { name, category, price, photoUrl, isAvailable, sizes, modifierGroups } = req.body;
+    const newItem = new MenuItem({ name, category, price, photoUrl, isAvailable, sizes, modifierGroups });
     await newItem.save();
 
     if (req.app.locals.io) {
@@ -78,13 +127,13 @@ router.post('/', authenticate, authorize('owner', 'manager'), async (req, res) =
 
 // PUT /api/menu/:id
 // Owner & Manager only
-router.put('/:id', authenticate, authorize('owner', 'manager'), async (req, res) => {
+router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(menuSchema), async (req, res) => {
   try {
-    const { name, category, price, photoUrl, isAvailable, isArchived, stockQuantity, lowStockThreshold } = req.body;
+    const { name, category, price, photoUrl, isAvailable, isArchived, sizes, modifierGroups } = req.body;
     
     const updateFields = { name, category, price, photoUrl, isAvailable, isArchived };
-    if (stockQuantity !== undefined) updateFields.stockQuantity = stockQuantity;
-    if (lowStockThreshold !== undefined) updateFields.lowStockThreshold = lowStockThreshold;
+    if (sizes !== undefined) updateFields.sizes = sizes;
+    if (modifierGroups !== undefined) updateFields.modifierGroups = modifierGroups;
 
     const item = await MenuItem.findByIdAndUpdate(
       req.params.id,
@@ -141,11 +190,16 @@ router.get('/:id/cost', authenticate, authorize('owner', 'manager'), async (req,
   try {
     const Recipe = require('../models/Recipe');
     const Ingredient = require('../models/Ingredient');
+    const sizeName = req.query.size;
 
     const item = await MenuItem.findById(req.params.id);
     if (!item) return res.status(404).send('Menu item not found');
 
-    const recipe = await Recipe.findOne({ menuItemId: item._id }).populate('ingredients.ingredientId');
+    let query = { menuItemId: item._id };
+    if (sizeName) query.size = sizeName;
+    else if (item.sizes && item.sizes.length > 0) query.size = item.sizes[0].name;
+
+    const recipe = await Recipe.findOne(query).populate('ingredients.ingredientId');
     
     let cogs = 0;
     let ingredientsBreakdown = [];
@@ -176,10 +230,15 @@ router.get('/:id/cost', authenticate, authorize('owner', 'manager'), async (req,
       }
     }
 
-    const marginPercent = ((item.price - cogs) / item.price) * 100;
+    const targetPrice = (sizeName && item.sizes) 
+      ? (item.sizes.find(s => s.name === sizeName)?.price || item.price)
+      : item.price;
+      
+    const marginPercent = targetPrice > 0 ? ((targetPrice - cogs) / targetPrice) * 100 : 0;
 
     res.json({
       menuItem: item,
+      size: sizeName,
       cogs,
       marginPercent,
       ingredientsBreakdown

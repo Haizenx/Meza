@@ -6,6 +6,9 @@ const MenuItem = require('../models/MenuItem');
 const Recipe = require('../models/Recipe');
 const Ingredient = require('../models/Ingredient');
 const Shift = require('../models/Shift');
+const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
 const { authenticate, authorize } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
@@ -51,6 +54,12 @@ router.post('/', authenticate, [
       // 1. Fetch current price from DB (do NOT trust client price)
       const menuItem = await MenuItem.findById(item.menuItemId);
       if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
+      
+      let basePrice = menuItem.price;
+      if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
+        const sizeObj = menuItem.sizes.find(s => s.name === item.size);
+        if (sizeObj) basePrice = sizeObj.price;
+      }
 
       let modifierSum = 0;
       const verifiedModifiers = [];
@@ -71,7 +80,7 @@ router.post('/', authenticate, [
         });
       }
 
-      const itemFinalPrice = menuItem.price + modifierSum;
+      const itemFinalPrice = basePrice + modifierSum;
       const itemTotal = itemFinalPrice * item.quantity;
       subtotal += itemTotal;
 
@@ -80,6 +89,7 @@ router.post('/', authenticate, [
         nameAtSale: menuItem.name || 'Unknown Item',
         priceAtSale: itemFinalPrice || 0, // Snapshotted at moment of sale (includes modifiers)
         quantity: item.quantity || 1,
+        size: item.size || null,
         note: item.note || '',
         modifiers: verifiedModifiers || []
       });
@@ -174,6 +184,21 @@ router.post('/', authenticate, [
 
     await newOrder.save();
 
+    if (newOrder.status === 'completed') {
+      const transaction = new Transaction({
+        orderId: newOrder._id,
+        type: 'sale',
+        subtotal: newOrder.subtotal,
+        discountAmount: newOrder.discountAmount,
+        total: newOrder.total,
+        paymentMethod: newOrder.paymentMethod,
+        cashTendered: newOrder.cashTendered,
+        changeDue: newOrder.changeDue,
+        cashierId: newOrder.cashierId
+      });
+      await transaction.save();
+    }
+
     // Broadcast new order to Dashboard and KDS
     if (req.io) {
       req.io.emit('order:created', newOrder);
@@ -233,6 +258,7 @@ router.post('/qr', async (req, res) => {
         nameAtSale: menuItem.name || 'Unknown Item',
         priceAtSale: menuItem.price || 0,
         quantity: item.quantity || 1,
+        size: item.size || null,
         note: item.note || ''
       });
 
@@ -346,24 +372,59 @@ router.get('/:id', authenticate, authorize('owner', 'manager'), async (req, res)
 });
 
 // PUT /api/orders/:id/void
-router.put('/:id/void', authenticate, authorize('owner', 'manager'), async (req, res) => {
+router.put('/:id/void', authenticate, async (req, res) => {
   try {
-    const { voidReason } = req.body;
+    const { voidReason, managerPin } = req.body;
+    
+    // Authenticate manager via PIN
+    if (!managerPin) return res.status(400).json({ message: 'Manager PIN is required to authorize void.' });
+    
+    const managers = await User.find({ role: { $in: ['manager', 'owner'] }, pinHash: { $exists: true } });
+    let authorizedManager = null;
+    for (let m of managers) {
+      if (await bcrypt.compare(managerPin, m.pinHash)) {
+        authorizedManager = m;
+        break;
+      }
+    }
+    
+    if (!authorizedManager) {
+      return res.status(403).json({ message: 'Invalid Manager PIN' });
+    }
+
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).send('Order not found');
+    if (order.status === 'voided') return res.status(400).json({ message: 'Order already voided' });
 
     order.status = 'voided';
-    order.voidedBy = req.user.id;
+    order.voidedBy = authorizedManager._id;
     order.voidReason = voidReason;
     
     await order.save();
 
-    // Note: A real robust system would also revert the inventory here, 
-    // but the prompt did not explicitly request inventory reversion on void.
-    // I'll keep it simple as requested.
+    // Create a void transaction
+    const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' });
+    
+    const transaction = new Transaction({
+      orderId: order._id,
+      originalTransactionId: originalTx ? originalTx._id : undefined,
+      type: 'void',
+      subtotal: -order.subtotal, // Negate for analytics summing
+      discountAmount: -order.discountAmount,
+      total: -order.total,
+      paymentMethod: order.paymentMethod,
+      managerId: authorizedManager._id,
+      reason: voidReason
+    });
+    await transaction.save();
+
+    if (req.io) {
+      req.io.emit('order:updated', order);
+    }
 
     res.json(order);
   } catch (err) {
+    console.error(err);
     res.status(500).send('Server error');
   }
 });
@@ -391,6 +452,19 @@ router.put('/:id/kds', authenticate, async (req, res) => {
 
     order.fulfillmentStatus = fulfillmentStatus;
     await order.save();
+
+    const transaction = new Transaction({
+      orderId: order._id,
+      type: 'sale',
+      subtotal: order.subtotal,
+      discountAmount: order.discountAmount,
+      total: order.total,
+      paymentMethod: order.paymentMethod,
+      cashTendered: order.cashTendered,
+      changeDue: order.changeDue,
+      cashierId: req.user.id
+    });
+    await transaction.save();
 
     if (req.io) {
       req.io.emit('kds:update_status', order);
@@ -425,6 +499,19 @@ router.put('/:id/pay', authenticate, async (req, res) => {
     order.cashierId = req.user.id; // Record who processed the payment
     
     await order.save();
+
+    const transaction = new Transaction({
+      orderId: order._id,
+      type: 'sale',
+      subtotal: order.subtotal,
+      discountAmount: order.discountAmount,
+      total: order.total,
+      paymentMethod: order.paymentMethod,
+      cashTendered: order.cashTendered,
+      changeDue: order.changeDue,
+      cashierId: req.user.id
+    });
+    await transaction.save();
 
     if (req.io) {
       req.io.emit('order:updated', order);

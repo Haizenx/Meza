@@ -91,7 +91,13 @@ export default function MenuManagement() {
                   </div>
                 </td>
                 <td className="px-6 py-4 text-gray-500 font-medium">{item.category}</td>
-                <td className="px-6 py-4 font-bold text-meza-text">₱{item.price.toFixed(2)}</td>
+                <td className="px-6 py-4 font-bold text-meza-text">
+                  {item.sizes && item.sizes.length > 0 ? (
+                    <span>From ₱{Math.min(...item.sizes.map(s => s.price || 0)).toFixed(2)}</span>
+                  ) : (
+                    <span>₱{(item.price || 0).toFixed(2)}</span>
+                  )}
+                </td>
                 <td className="px-6 py-4">
                   <button 
                     onClick={() => handleToggleStatus(item)}
