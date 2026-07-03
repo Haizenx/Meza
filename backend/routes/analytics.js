@@ -135,7 +135,15 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
     const now = new Date();
     let currentStart, previousStart, previousEnd, trendStart, trendDays, trendFormat, trendGroupBy;
 
-    if (timeframe === 'monthly') {
+    if (timeframe === 'yearly') {
+      currentStart = new Date(now.getFullYear(), 0, 1);
+      previousStart = new Date(now.getFullYear() - 1, 0, 1);
+      previousEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
+      trendStart = new Date(now.getFullYear() - 4, 0, 1); // 5 years trend
+      trendDays = 5;
+      trendFormat = '%Y';
+      trendGroupBy = { year: { $year: '$createdAt' } };
+    } else if (timeframe === 'monthly') {
       currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
       previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       previousEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
@@ -182,7 +190,11 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
 
     // 2. Trend (from Transaction Ledger)
     const trendGroupByTx = { year: { $year: '$timestamp' }, month: { $month: '$timestamp' }, day: { $dayOfMonth: '$timestamp' } };
-    if (timeframe === 'monthly') {
+    if (timeframe === 'yearly') {
+      trendGroupByTx.month = undefined;
+      trendGroupByTx.week = undefined;
+      trendGroupByTx.day = undefined;
+    } else if (timeframe === 'monthly') {
       trendGroupByTx.week = undefined;
       trendGroupByTx.day = undefined;
     } else if (timeframe === 'weekly') {
@@ -234,7 +246,9 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
     // For simplicity, we'll map the grouped _id to a string date/label.
     const sevenDayTrend = trendRes.map(t => {
       let label = '';
-      if (timeframe === 'monthly') {
+      if (timeframe === 'yearly') {
+        label = `${t._id.year}`;
+      } else if (timeframe === 'monthly') {
         label = `${t._id.year}-${String(t._id.month).padStart(2, '0')}`;
       } else if (timeframe === 'weekly') {
         label = `Week ${t._id.week}, ${t._id.year}`;
