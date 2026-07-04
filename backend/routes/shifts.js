@@ -40,8 +40,20 @@ router.post('/end', authenticate, async (req, res) => {
 
     // Calculate expected cash (Starting Cash + Cash Orders)
     // Note: The frontend is sending "Cash" (capital C) so we match that, though previously 'cash' might have been lowercase. We'll search case-insensitively or just 'Cash'.
-    const cashOrders = await Order.find({ shiftId: shift._id, paymentMethod: { $regex: /^cash$/i } });
-    const cashSales = cashOrders.reduce((sum, order) => sum + order.total, 0);
+    const orders = await Order.find({ shiftId: shift._id, status: { $ne: 'voided' } });
+    let cashSales = 0;
+    orders.forEach(order => {
+      const pm = (order.paymentMethod || '').toLowerCase();
+      if (pm === 'cash') {
+        cashSales += order.total;
+      } else if (pm === 'split' && Array.isArray(order.splitPayments)) {
+        order.splitPayments.forEach(p => {
+          if ((p.method || '').toLowerCase() === 'cash') {
+            cashSales += (p.amount || 0);
+          }
+        });
+      }
+    });
     
     shift.expectedCash = shift.startingCash + cashSales;
     shift.actualCash = req.body.actualCash;

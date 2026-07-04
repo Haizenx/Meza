@@ -67,11 +67,14 @@ export default function QRMenu() {
         paymentMethod: isPaidOnline ? 'online' : 'cash', // 'cash' means pay at counter later
         isPaidOnline,
         customerName: customerName.trim(),
-        tableNumber
+        tableNumber,
+        clientCalculatedTotal: total
       };
 
       // Simulate payment delay if online
       if (isPaidOnline) {
+        // MOCK PAYMENT GATEWAY: Generate a fake intent token
+        payload.paymentIntentId = `pi_${crypto.randomUUID()}`;
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
 
@@ -86,7 +89,16 @@ export default function QRMenu() {
         setOrderSuccess(data);
         setCart([]);
       } else {
-        alert('Failed to place order.');
+        if (res.status === 409) {
+          alert('Menu prices have been updated! Please review the new prices before ordering.');
+          // Refresh menu to show new prices
+          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/public`)
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(data => { setMenuItems(data); setIsCheckingOut(false); })
+            .catch(console.error);
+        } else {
+          alert('Failed to place order.');
+        }
       }
     } catch (err) {
       alert('Network error.');

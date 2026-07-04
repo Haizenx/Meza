@@ -74,10 +74,15 @@ router.post('/', authenticate, authorize('owner', 'manager'), validateZod(ingred
 // Owner & Manager
 router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(ingredientSchema), async (req, res) => {
   try {
-    const { name, purchaseUnit, unitCost, currency, stockQuantity, lowStockThreshold } = req.body;
+    const { name, purchaseUnit, unitCost, currency, stockQuantity, lowStockThreshold, __v } = req.body;
     
     const existingItem = await Ingredient.findById(req.params.id);
     if (!existingItem) return res.status(404).send('Not found');
+    
+    // Optimistic Concurrency Control
+    if (__v !== undefined && existingItem.__v > __v) {
+      return res.status(409).json({ message: 'Conflict: This item was modified by another user. Please refresh and try again.' });
+    }
 
     // Check if stock is manually adjusted
     if (stockQuantity !== undefined && stockQuantity !== existingItem.stockQuantity) {
@@ -145,11 +150,19 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
     });
     await po.save();
 
-    // Update Ingredient
-    ingredient.stockQuantity = newTotalStock;
+    // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
+    await Ingredient.findByIdAndUpdate(ingredientId, {
+      $inc: { stockQuantity: quantityReceived },
+      $set: { 
+        movingAverageCost: newMovingAverageCost,
+        unitCost: newMovingAverageCost
+      }
+    });
+    
+    // update local reference if needed for response
+    ingredient.stockQuantity += quantityReceived;
     ingredient.movingAverageCost = newMovingAverageCost;
-    ingredient.unitCost = newMovingAverageCost; // Also update base unitCost for backward compatibility
-    await ingredient.save();
+    ingredient.unitCost = newMovingAverageCost;
 
     if (req.io) {
       req.io.emit('inventory:updated');
