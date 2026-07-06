@@ -40,8 +40,7 @@ app.use(cookieParser());
 
 // SECURITY MIDDLEWARE
 app.use(helmet()); // Set security HTTP headers
-// app.use(mongoSanitize()); // Disabled due to crash with req.query getter
-// app.use(xss()); // Disabled due to crash with req.query getter
+app.use(mongoSanitize({ replaceWith: '_' })); // Safely replaces forbidden characters like '$' and '.' to prevent NoSQL injection
 app.use(hpp()); // Prevent parameter pollution
 
 const limiter = rateLimit({

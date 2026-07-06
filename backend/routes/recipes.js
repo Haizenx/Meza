@@ -24,16 +24,13 @@ router.post('/', authenticate, authorize('owner'), async (req, res) => {
     const { menuItemId, size, ingredients } = req.body;
     const recipeSize = size || 'Regular';
     
-    // UPSERT logic
-    const existing = await Recipe.findOne({ menuItemId, size: recipeSize });
-    if (existing) {
-      existing.ingredients = ingredients;
-      await existing.save();
-      return res.json(existing);
-    }
-
-    const recipe = new Recipe({ menuItemId, size: recipeSize, ingredients });
-    await recipe.save();
+    // UPSERT logic using atomic findOneAndUpdate to prevent race conditions
+    const recipe = await Recipe.findOneAndUpdate(
+      { menuItemId, size: recipeSize },
+      { $set: { ingredients } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    
     res.status(201).json(recipe);
   } catch (err) {
     res.status(500).send('Server error');

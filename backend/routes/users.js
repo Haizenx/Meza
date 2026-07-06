@@ -32,6 +32,10 @@ router.post('/', authenticate, authorize('owner'), [
   try {
     const { name, email, password, role, pin } = req.body;
     
+    if (role === 'owner') {
+      return res.status(403).json({ message: 'Owner accounts cannot create other owners for security reasons.' });
+    }
+
     let user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: 'User already exists' });
 
@@ -69,11 +73,22 @@ router.put('/profile', authenticate, [
   validate
 ], async (req, res) => {
   try {
-    const { name, email, password, pin } = req.body;
+    const { name, email, password, pin, currentPassword } = req.body;
     
     // req.user.id comes from the authenticate middleware
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Require current password for sensitive changes
+    if (email || password || pin) {
+      if (!currentPassword) {
+        return res.status(401).json({ message: 'Current password is required to change sensitive profile details' });
+      }
+      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Incorrect current password' });
+      }
+    }
 
     if (name) user.name = name;
     if (email) user.email = email;
@@ -103,12 +118,11 @@ router.put('/profile', authenticate, [
 // Update user (Owner only)
 router.put('/:id', authenticate, authorize('owner'), [
   body('email').optional().isEmail().normalizeEmail(),
-  body('password').optional().isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
   body('role').optional().isIn(['cashier', 'manager', 'owner']),
   validate
 ], async (req, res) => {
   try {
-    const { name, email, role, isActive, password, pin } = req.body;
+    const { name, email, role, isActive } = req.body;
     
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -117,17 +131,11 @@ router.put('/:id', authenticate, authorize('owner'), [
     if (email) user.email = email;
     if (role) user.role = role;
     if (isActive !== undefined) user.isActive = isActive;
-
-    if (password) {
-      const salt = await bcrypt.genSalt(10);
-      user.passwordHash = await bcrypt.hash(password, salt);
-    }
-
-    if (pin && (user.role === 'manager' || user.role === 'owner')) {
-      const salt = await bcrypt.genSalt(10);
-      user.pinHash = await bcrypt.hash(pin, salt);
-    } else if (user.role === 'cashier') {
-      user.pinHash = undefined; // Cashiers don't have PINs
+    
+    // Explicitly forbidding admins from setting plaintext passwords/pins 
+    // They must trigger a secure reset flow instead of manually backdooring accounts
+    if (user.role === 'cashier') {
+      user.pinHash = undefined;
     }
 
     await user.save();
