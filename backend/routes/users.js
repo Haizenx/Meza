@@ -27,6 +27,7 @@ router.post('/', authenticate, authorize('owner'), [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
   body('role').isIn(['cashier', 'manager', 'owner']),
+  body('pin').optional().isString().isLength({ min: 4, max: 6 }).withMessage('PIN must be 4-6 digits'),
   validate
 ], async (req, res) => {
   try {

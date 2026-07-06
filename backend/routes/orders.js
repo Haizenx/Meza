@@ -269,16 +269,43 @@ router.post('/qr', qrLimiter, async (req, res) => {
         if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
       if (!menuItem.isAvailable) throw new Error(`Item ${menuItem.name} is currently unavailable`);
 
-      const itemTotal = menuItem.price * item.quantity;
+      let basePrice = menuItem.price;
+      if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
+        const foundSize = menuItem.sizes.find(s => s.name === item.size);
+        if (foundSize) basePrice = foundSize.price;
+      }
+      
+      let modifierSum = 0;
+      const verifiedModifiers = [];
+      
+      if (Array.isArray(item.modifiers)) {
+        item.modifiers.forEach(mod => {
+          let foundOption = null;
+          if (menuItem.modifierGroups) {
+            for (let group of menuItem.modifierGroups) {
+              const opt = group.options.find(o => o.name === mod.name);
+              if (opt) { foundOption = opt; break; }
+            }
+          }
+          if (foundOption) {
+            modifierSum += foundOption.price || 0;
+            verifiedModifiers.push({ name: foundOption.name, price: foundOption.price || 0 });
+          }
+        });
+      }
+
+      const itemFinalPrice = basePrice + modifierSum;
+      const itemTotal = itemFinalPrice * item.quantity;
       subtotal += itemTotal;
 
       processedItems.push({
         menuItemId: menuItem._id,
         nameAtSale: menuItem.name || 'Unknown Item',
-        priceAtSale: menuItem.price || 0,
+        priceAtSale: itemFinalPrice || 0,
         quantity: item.quantity || 1,
         size: item.size || null,
-        note: item.note || ''
+        note: item.note || '',
+        modifiers: verifiedModifiers || []
       });
 
       await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } }, { session });
