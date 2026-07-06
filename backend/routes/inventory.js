@@ -139,25 +139,37 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
     
     const newMovingAverageCost = newTotalValue / newTotalStock;
 
-    // Create Purchase Order Record
-    const po = new PurchaseOrder({
-      ingredientId,
-      quantityReceived,
-      totalCostPaid,
-      unitCostForBatch,
-      receivedBy: req.user.id,
-      supplierName
-    });
-    await po.save();
+    const mongoose = require('mongoose');
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      // Create Purchase Order Record
+      const po = new PurchaseOrder({
+        ingredientId,
+        quantityReceived,
+        totalCostPaid,
+        unitCostForBatch,
+        receivedBy: req.user.id,
+        supplierName
+      });
+      await po.save({ session });
 
-    // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
-    await Ingredient.findByIdAndUpdate(ingredientId, {
-      $inc: { stockQuantity: quantityReceived },
-      $set: { 
-        movingAverageCost: newMovingAverageCost,
-        unitCost: newMovingAverageCost
-      }
-    });
+      // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
+      await Ingredient.findByIdAndUpdate(ingredientId, {
+        $inc: { stockQuantity: quantityReceived },
+        $set: { 
+          movingAverageCost: newMovingAverageCost,
+          unitCost: newMovingAverageCost
+        }
+      }, { session });
+
+      await session.commitTransaction();
+      session.endSession();
+    } catch (transactionErr) {
+      await session.abortTransaction();
+      session.endSession();
+      throw transactionErr;
+    }
     
     // update local reference if needed for response
     ingredient.stockQuantity += quantityReceived;

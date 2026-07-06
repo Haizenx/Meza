@@ -8,7 +8,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 router.get('/', authenticate, authorize('owner'), async (req, res) => {
   try {
     const filter = {};
-    if (req.query.menuItemId) filter.menuItemId = req.query.menuItemId;
+    if (req.query.menuItemId) filter.menuItemId = String(req.query.menuItemId);
     
     const recipes = await Recipe.find(filter).populate('ingredients.ingredientId');
     res.json(recipes);

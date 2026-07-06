@@ -9,7 +9,7 @@ const ingredientSchema = new mongoose.Schema({
   stockQuantity: { type: Number, required: true },
   lowStockThreshold: { type: Number, required: true },
   updatedAt: { type: Date, default: Date.now }
-});
+}, { optimisticConcurrency: true });
 
 // Add case-insensitive unique index for name
 ingredientSchema.index({ name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
