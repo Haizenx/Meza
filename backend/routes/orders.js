@@ -39,16 +39,11 @@ router.post('/', authenticate, [
   validate
 ], async (req, res) => {
   try {
-    const { localUUID, items, paymentMethod, cashTendered, shiftId, customerName, splitPayments, fulfillmentStatus } = req.body;
+    const { localUUID, items, paymentMethod, splitPayments, cashTendered, customerName, shiftId, fulfillmentStatus } = req.body;
 
     if (!localUUID) return res.status(400).json({ message: 'localUUID is required' });
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
-
-    // Idempotency check
-    const existingOrder = await Order.findOne({ localUUID });
-    if (existingOrder) {
-      return res.status(200).json(existingOrder);
-    }
+    if (!shiftId) return res.status(400).json({ message: 'Active shift ID is required' });
 
     let subtotal = 0;
     const processedItems = [];
@@ -58,7 +53,7 @@ router.post('/', authenticate, [
     session.startTransaction();
     try {
       for (let item of items) {
-        if (!item.menuItemId || item.quantity <= 0) {
+        if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
           throw new Error('Invalid item data');
         }
 
@@ -228,6 +223,13 @@ router.post('/', authenticate, [
     }
 
   } catch (err) {
+    // Handle MongoDB Duplicate Key Error for localUUID (Fixes double-tap offline sync race condition)
+    if (err.code === 11000 && err.keyPattern && err.keyPattern.localUUID) {
+      console.log(`[SYNC] Duplicate localUUID ignored by DB: ${req.body.localUUID}`);
+      const existingOrder = await Order.findOne({ localUUID: req.body.localUUID });
+      return res.status(200).json(existingOrder);
+    }
+
     console.error('Order creation failed:', err.message);
     
     // Check if error is due to non-replica set
@@ -251,11 +253,6 @@ router.post('/qr', qrLimiter, async (req, res) => {
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
     if (!tableNumber) return res.status(400).json({ message: 'Table number is required' });
 
-    const existingOrder = await Order.findOne({ localUUID });
-    if (existingOrder) {
-      return res.status(200).json(existingOrder);
-    }
-
     let subtotal = 0;
     const processedItems = [];
     const inventoryDeductions = new Map(); 
@@ -264,7 +261,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
     session.startTransaction();
     try {
       for (let item of items) {
-        if (!item.menuItemId || item.quantity <= 0) {
+        if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
           throw new Error('Invalid item data');
         }
 
@@ -386,6 +383,12 @@ router.post('/qr', qrLimiter, async (req, res) => {
     }
 
   } catch (err) {
+    if (err.code === 11000 && err.keyPattern && err.keyPattern.localUUID) {
+      console.log(`[QR-SYNC] Duplicate localUUID ignored by DB: ${req.body.localUUID}`);
+      const existingOrder = await Order.findOne({ localUUID: req.body.localUUID });
+      return res.status(200).json(existingOrder);
+    }
+
     console.error('QR Order creation failed:', err.message);
     res.status(400).json({ message: err.message || 'Failed to process order' });
   }
@@ -528,11 +531,14 @@ router.get('/kds/active', authenticate, async (req, res) => {
 router.put('/:id/kds', authenticate, async (req, res) => {
   try {
     const { fulfillmentStatus } = req.body;
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).send('Order not found');
-
-    order.fulfillmentStatus = fulfillmentStatus;
-    await order.save();
+    
+    // OCC: Only allow updating fulfillment status if the order hasn't been voided
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, status: { $ne: 'voided' } },
+      { fulfillmentStatus },
+      { new: true }
+    );
+    if (!order) return res.status(404).json({ message: 'Order not found or has been voided by a manager' });
 
     if (req.io) {
       req.io.emit('kds:update_status', order);
@@ -558,18 +564,25 @@ router.get('/unpaid', authenticate, async (req, res) => {
 router.put('/:id/pay', authenticate, async (req, res) => {
   try {
     const { paymentMethod } = req.body;
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).send('Order not found');
-
-    order.status = 'completed';
-    order.fulfillmentStatus = 'preparing';
-    order.paymentMethod = paymentMethod || 'cash';
-    order.cashierId = req.user.id; // Record who processed the payment
     
+    // OCC: Ensure order is still unpaid before paying it
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, status: 'unpaid' },
+      { 
+        status: 'completed',
+        fulfillmentStatus: 'preparing',
+        paymentMethod: paymentMethod || 'cash',
+        cashierId: req.user.id
+      },
+      { new: true }
+    );
+    
+    if (!order) return res.status(400).json({ message: 'Order not found, already paid, or voided' });
+
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-      await order.save({ session });
+      // Create transaction for financial records
 
       const transaction = new Transaction({
         orderId: order._id,

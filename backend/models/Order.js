@@ -37,6 +37,7 @@ const orderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+orderSchema.index({ localUUID: 1 }, { unique: true, sparse: true });
 orderSchema.index({ createdAt: -1, status: 1 });
 orderSchema.index({ shiftId: 1 });
 

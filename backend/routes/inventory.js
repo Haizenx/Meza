@@ -184,13 +184,13 @@ router.get('/history', authenticate, authorize('owner', 'manager'), async (req, 
     const Ingredient = require('../models/Ingredient');
 
     // Fetch Deliveries
-    const deliveries = await PurchaseOrder.find()
+    const deliveries = await PurchaseOrder.find().limit(200)
       .populate('ingredientId', 'name purchaseUnit')
       .populate('receivedBy', 'name email')
       .lean();
 
     // Fetch Manual Adjustments
-    const audits = await AuditLog.find({ action: 'MANUAL_STOCK_ADJUSTMENT' })
+    const audits = await AuditLog.find({ action: 'MANUAL_STOCK_ADJUSTMENT' }).limit(200)
       .populate('targetId', 'name purchaseUnit')
       .populate('actorId', 'name email')
       .lean();

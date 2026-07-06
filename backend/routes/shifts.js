@@ -71,7 +71,7 @@ router.post('/end', authenticate, async (req, res) => {
 // Get all historical shifts (Admin only)
 router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
-    const shifts = await Shift.find().populate('staff', 'name').sort({ startTime: -1 }).lean();
+    const shifts = await Shift.find().limit(100).populate('staff', 'name').sort({ startTime: -1 }).lean();
     
     // Calculate live expectedCash for open shifts
     for (let shift of shifts) {
