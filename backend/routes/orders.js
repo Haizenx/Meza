@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const rateLimit = require('express-rate-limit');
 const Order = require('../models/Order');
 const MenuItem = require('../models/MenuItem');
 const Recipe = require('../models/Recipe');
@@ -11,6 +12,13 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const { authenticate, authorize } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
+
+// Aggressive rate limiter for public QR ordering
+const qrLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Max 5 QR orders per IP per minute
+  message: { message: 'Too many orders from this device. Please wait a moment.' }
+});
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -234,8 +242,8 @@ router.post('/', authenticate, [
 });
 
 // POST /api/orders/qr
-// Public endpoint for Table-Side QR Ordering
-router.post('/qr', async (req, res) => {
+// Public endpoint for Table-Side QR Ordering (rate-limited)
+router.post('/qr', qrLimiter, async (req, res) => {
   try {
     const { localUUID, items, paymentMethod, tableNumber, isPaidOnline } = req.body;
 
@@ -323,8 +331,10 @@ router.post('/qr', async (req, res) => {
       }
     }
 
-    const status = isPaidOnline ? 'completed' : 'unpaid';
-    const finalPaymentMethod = isPaidOnline ? 'online' : (paymentMethod || 'cash');
+    // SECURITY: Never trust client-side isPaidOnline flag.
+    // All QR orders start as 'unpaid' until a cashier confirms payment or a real payment webhook arrives.
+    const status = 'unpaid';
+    const finalPaymentMethod = paymentMethod || 'cash';
 
     const newOrder = new Order({
       localUUID,
@@ -466,6 +476,20 @@ router.put('/:id/void', authenticate, async (req, res) => {
         reason: voidReason
       });
       await transaction.save({ session });
+
+      // RESTORE INVENTORY: Reverse stock deductions for voided order
+      for (const item of order.items) {
+        // Restore finished goods stock
+        await MenuItem.updateOne({ _id: item.menuItemId }, { $inc: { stockQuantity: item.quantity } }, { session });
+        
+        // Restore raw ingredient stock based on recipe
+        const recipe = await Recipe.findOne({ menuItemId: item.menuItemId, size: item.size || 'Regular' }).session(session);
+        if (recipe && recipe.ingredients) {
+          for (const ri of recipe.ingredients) {
+            await Ingredient.updateOne({ _id: ri.ingredientId }, { $inc: { stockQuantity: ri.quantity * item.quantity } }, { session });
+          }
+        }
+      }
 
       await session.commitTransaction();
       session.endSession();

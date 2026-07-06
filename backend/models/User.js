@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
   pinHash: { type: String }, // bcrypt hash, only set for manager/owner
   pinFailedAttempts: { type: Number, default: 0 },
   pinLockedUntil: { type: Date },
+  refreshToken: { type: String }, // Stored for revocation — cleared on logout
   isActive: { type: Boolean, default: true },
   lastLogin: { type: Date },
   createdAt: { type: Date, default: Date.now }

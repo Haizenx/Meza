@@ -130,51 +130,49 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
   try {
     const Shift = require('../models/Shift');
     const Ingredient = require('../models/Ingredient');
+    const { toZonedTime, format } = require('date-fns-tz');
+    const { startOfDay, startOfWeek, startOfMonth, startOfYear, subDays, subWeeks, subMonths, subYears, endOfDay } = require('date-fns');
+
     const timeframe = req.query.timeframe || 'daily'; // daily, weekly, monthly
     
-    const now = new Date();
+    // Always calculate boundaries relative to Manila time
+    const timeZone = 'Asia/Manila';
+    const nowInManila = toZonedTime(new Date(), timeZone);
     let currentStart, previousStart, previousEnd, trendStart, trendDays, trendFormat, trendGroupBy;
 
     if (timeframe === 'yearly') {
-      currentStart = new Date(now.getFullYear(), 0, 1);
-      previousStart = new Date(now.getFullYear() - 1, 0, 1);
-      previousEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59);
-      trendStart = new Date(now.getFullYear() - 4, 0, 1); // 5 years trend
+      currentStart = startOfYear(nowInManila);
+      previousStart = startOfYear(subYears(nowInManila, 1));
+      previousEnd = endOfDay(subDays(currentStart, 1));
+      trendStart = startOfYear(subYears(nowInManila, 4)); // 5 years trend
       trendDays = 5;
       trendFormat = '%Y';
       trendGroupBy = { year: { $year: { date: '$createdAt', timezone: 'Asia/Manila' } } };
     } else if (timeframe === 'monthly') {
-      currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      previousEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-      trendStart = new Date(now.getFullYear(), now.getMonth() - 5, 1); // 6 months trend
+      currentStart = startOfMonth(nowInManila);
+      previousStart = startOfMonth(subMonths(nowInManila, 1));
+      previousEnd = endOfDay(subDays(currentStart, 1));
+      trendStart = startOfMonth(subMonths(nowInManila, 5)); // 6 months trend
       trendDays = 6;
       trendFormat = '%Y-%m';
       trendGroupBy = { year: { $year: { date: '$createdAt', timezone: 'Asia/Manila' } }, month: { $month: { date: '$createdAt', timezone: 'Asia/Manila' } } };
     } else if (timeframe === 'weekly') {
       // Assuming week starts on Sunday
-      const dayOfWeek = now.getDay();
-      currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
-      previousStart = new Date(currentStart);
-      previousStart.setDate(previousStart.getDate() - 7);
-      previousEnd = new Date(currentStart);
-      previousEnd.setMilliseconds(-1);
-      trendStart = new Date(currentStart);
-      trendStart.setDate(trendStart.getDate() - 28); // 5 weeks trend
+      currentStart = startOfWeek(nowInManila, { weekStartsOn: 0 });
+      previousStart = startOfWeek(subWeeks(nowInManila, 1), { weekStartsOn: 0 });
+      previousEnd = endOfDay(subDays(currentStart, 1));
+      trendStart = startOfWeek(subWeeks(nowInManila, 4), { weekStartsOn: 0 }); // 5 weeks trend
       trendDays = 5;
       trendFormat = '%Y-%U'; // week number
-      trendGroupBy = { year: { $year: '$createdAt' }, week: { $week: '$createdAt' } };
+      trendGroupBy = { year: { $year: { date: '$createdAt', timezone: 'Asia/Manila' } }, week: { $week: { date: '$createdAt', timezone: 'Asia/Manila' } } };
     } else { // daily
-      currentStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      previousStart = new Date(currentStart);
-      previousStart.setDate(previousStart.getDate() - 1);
-      previousEnd = new Date(currentStart);
-      previousEnd.setMilliseconds(-1);
-      trendStart = new Date(currentStart);
-      trendStart.setDate(trendStart.getDate() - 6); // 7 days trend
+      currentStart = startOfDay(nowInManila);
+      previousStart = startOfDay(subDays(nowInManila, 1));
+      previousEnd = endOfDay(subDays(nowInManila, 1));
+      trendStart = startOfDay(subDays(nowInManila, 6)); // 7 days trend
       trendDays = 7;
       trendFormat = '%Y-%m-%d';
-      trendGroupBy = { year: { $year: '$createdAt' }, month: { $month: '$createdAt' }, day: { $dayOfMonth: '$createdAt' } };
+      trendGroupBy = { year: { $year: { date: '$createdAt', timezone: 'Asia/Manila' } }, month: { $month: { date: '$createdAt', timezone: 'Asia/Manila' } }, day: { $dayOfMonth: { date: '$createdAt', timezone: 'Asia/Manila' } } };
     }
 
     // 1. Current & Previous Stats (from Transaction Ledger)
@@ -202,7 +200,7 @@ router.get('/dashboard', authenticate, authorize('owner', 'manager'), async (req
       trendGroupByTx.week = undefined;
       trendGroupByTx.day = undefined;
     } else if (timeframe === 'weekly') {
-      trendGroupByTx.week = { $week: '$timestamp' };
+      trendGroupByTx.week = { $week: { date: '$timestamp', timezone: 'Asia/Manila' } };
       trendGroupByTx.day = undefined;
     }
     

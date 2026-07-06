@@ -129,8 +129,9 @@ router.post('/', authenticate, authorize('owner', 'manager'), validateZod(menuSc
     const newItem = new MenuItem({ name, category, price, photoUrl, isAvailable, sizes, modifierGroups });
     await newItem.save();
 
-    if (req.app.locals.io) {
-      req.app.locals.io.emit('menu:updated', newItem);
+    if (req.io) {
+      req.io.emit('menu:updated', newItem);
+      if (req.publicIo) req.publicIo.emit('menu:updated', newItem);
     }
 
     res.status(201).json(newItem);
@@ -157,8 +158,9 @@ router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(menu
 
     if (!item) return res.status(404).send('Not found');
 
-    if (req.app.locals.io) {
-      req.app.locals.io.emit('menu:updated', item);
+    if (req.io) {
+      req.io.emit('menu:updated', item);
+      if (req.publicIo) req.publicIo.emit('menu:updated', item);
     }
 
     res.json(item);
@@ -190,7 +192,10 @@ router.put('/:id/toggle-availability', authenticate, async (req, res) => {
     await item.save();
     
     // Broadcast update via socket
-    req.io.emit('menu:updated', item);
+    if (req.io) {
+      req.io.emit('menu:updated', item);
+      if (req.publicIo) req.publicIo.emit('menu:updated', item);
+    }
     
     res.json(item);
   } catch (err) {

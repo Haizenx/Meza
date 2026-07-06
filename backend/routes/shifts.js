@@ -94,7 +94,7 @@ router.get('/:id/analytics', authenticate, async (req, res) => {
     const shift = await Shift.findById(req.params.id).populate('staff', 'name').lean();
     if (!shift) return res.status(404).json({ message: 'Shift not found' });
 
-    const orders = await Order.find({ shiftId: shift._id }).populate('items.menuItemId', 'name').lean();
+    const orders = await Order.find({ shiftId: shift._id, status: { $ne: 'voided' } }).populate('items.menuItemId', 'name').lean();
     
     let totalSales = 0;
     let cashSales = 0;

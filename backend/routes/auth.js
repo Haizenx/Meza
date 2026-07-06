@@ -41,7 +41,6 @@ router.post('/login', authLimiter, [
     }
 
     user.lastLogin = new Date();
-    await user.save();
 
     const payload = {
       id: user._id,
@@ -49,7 +48,11 @@ router.post('/login', authLimiter, [
     };
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
-    const refreshToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+
+    // Store refresh token in DB for revocation support
+    user.refreshToken = refreshToken;
+    await user.save();
 
     // Store Refresh Token in httpOnly cookie
     res.cookie('refreshToken', refreshToken, {
@@ -69,14 +72,22 @@ router.post('/login', authLimiter, [
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server error');
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
 // POST /api/auth/logout
-router.post('/logout', (req, res) => {
-  res.clearCookie('refreshToken');
-  res.json({ message: 'Logged out successfully' });
+router.post('/logout', authenticate, async (req, res) => {
+  try {
+    // Revoke refresh token from DB
+    await User.findByIdAndUpdate(req.user.id, { refreshToken: null });
+    res.clearCookie('refreshToken');
+    res.json({ message: 'Logged out successfully' });
+  } catch (err) {
+    // Even if DB update fails, clear the cookie
+    res.clearCookie('refreshToken');
+    res.json({ message: 'Logged out successfully' });
+  }
 });
 
 // POST /api/auth/refresh
@@ -85,11 +96,17 @@ router.post('/refresh', async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
     if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    // Verify using the SEPARATE refresh secret
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
     const user = await User.findById(decoded.id);
     if (!user || !user.isActive) return res.status(401).json({ message: 'User inactive' });
     
+    // Verify token matches what's stored in DB (revocation check)
+    if (user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: 'Refresh token has been revoked' });
+    }
+
     const payload = { id: user._id, role: user.role };
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
     
@@ -99,7 +116,6 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-// POST /api/auth/verify-pin (Rate limited to 10 attempts per 15 mins)
 // GET /api/auth/managers
 // Returns a safe list of managers for the PIN selection dropdown
 router.get('/managers', authenticate, async (req, res) => {
@@ -107,7 +123,7 @@ router.get('/managers', authenticate, async (req, res) => {
     const managers = await User.find({ role: { $in: ['manager', 'owner'] }, isActive: true }).select('_id name');
     res.json(managers);
   } catch (err) {
-    res.status(500).send('Server error');
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -146,18 +162,18 @@ router.post('/verify-pin', authenticate, authLimiter, [
     }
   } catch (err) {
     console.error(err);
-    res.status(500).send('Server error');
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
 // GET /api/auth/me
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-passwordHash -pinHash');
+    const user = await User.findById(req.user.id).select('-passwordHash -pinHash -refreshToken');
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {
-    res.status(500).send('Server error');
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

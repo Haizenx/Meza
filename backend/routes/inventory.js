@@ -256,7 +256,7 @@ router.post('/import', authenticate, authorize('owner', 'manager'), async (req, 
         }
 
         // Check if exists
-        let existing = await Ingredient.findOne({ name: { $regex: new RegExp('^' + name + '$', 'i') } });
+        let existing = await Ingredient.findOne({ name }).collation({ locale: 'en', strength: 2 });
         if (existing) {
           existing.purchaseUnit = purchaseUnit;
           existing.unitCost = unitCost;

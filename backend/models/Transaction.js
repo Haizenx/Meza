@@ -30,4 +30,7 @@ transactionSchema.pre(['deleteOne', 'findOneAndDelete', 'deleteMany', 'remove'],
   next(new Error('Transactions cannot be deleted.'));
 });
 
+transactionSchema.index({ timestamp: -1 });
+transactionSchema.index({ orderId: 1, type: 1 });
+
 module.exports = mongoose.model('Transaction', transactionSchema);

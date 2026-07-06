@@ -8,7 +8,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   receivedAt: { type: Date, default: Date.now },
   receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   supplierName: { type: String }
-});
+}, { timestamps: true });
 // Guard: Enforce append-only at the application level
 purchaseOrderSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany', 'update'], function(next) {
   next(new Error('Purchase Orders (Restock History) are append-only and cannot be modified.'));

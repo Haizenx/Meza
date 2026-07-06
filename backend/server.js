@@ -9,7 +9,6 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
 const hpp = require('hpp');
 
 const app = express();
@@ -50,9 +49,13 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// Expose io to routes
+// Set up a public namespace for unauthenticated clients (QR Menu)
+const publicIo = io.of('/public');
+
+// Expose io and publicIo to routes
 app.use((req, res, next) => {
   req.io = io;
+  req.publicIo = publicIo;
   next();
 });
 
@@ -101,6 +104,14 @@ io.use((socket, next) => {
   }
 });
 
+// Global Error Handler — prevent stack trace leaks in production
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message
+  });
+});
+
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('Connected to MongoDB');
@@ -116,5 +127,12 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id} (User: ${socket.user.id})`);
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
+  });
+});
+
+publicIo.on('connection', (socket) => {
+  console.log(`Public client connected: ${socket.id}`);
+  socket.on('disconnect', () => {
+    console.log(`Public client disconnected: ${socket.id}`);
   });
 });

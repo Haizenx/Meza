@@ -37,4 +37,7 @@ const orderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+orderSchema.index({ createdAt: -1, status: 1 });
+orderSchema.index({ shiftId: 1 });
+
 module.exports = mongoose.model('Order', orderSchema);
