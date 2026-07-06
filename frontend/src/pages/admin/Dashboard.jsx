@@ -33,15 +33,25 @@ export default function Dashboard() {
   // Real-time live sync
   useEffect(() => {
     if (!socket) return;
+    let timeoutId;
+
     const handleSync = () => {
       // Prevent aggressive re-fetching for heavy aggregations
       if (timeframe === 'yearly') return;
-      fetchDashboardData();
+      
+      // Debounce: wait 5 seconds before fetching to prevent DDoS during order rushes
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        fetchDashboardData();
+      }, 5000);
     };
+
     socket.on('order:created', handleSync);
     socket.on('shift:updated', handleSync);
     socket.on('inventory:low_stock', handleSync);
+
     return () => {
+      if (timeoutId) clearTimeout(timeoutId);
       socket.off('order:created', handleSync);
       socket.off('shift:updated', handleSync);
       socket.off('inventory:low_stock', handleSync);

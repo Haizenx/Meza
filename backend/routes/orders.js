@@ -567,19 +567,35 @@ router.put('/:id/pay', authenticate, async (req, res) => {
   try {
     const { paymentMethod } = req.body;
     
+    const Shift = require('../models/Shift');
+    const activeShift = await Shift.findOne({ status: 'open' }).sort({ createdAt: -1 });
+    
+    // Fetch order first to check current fulfillmentStatus
+    const existingOrder = await Order.findOne({ _id: req.params.id, status: 'unpaid' });
+    if (!existingOrder) return res.status(400).json({ message: 'Order not found, already paid, or voided' });
+
+    const updateFields = {
+      status: 'completed',
+      paymentMethod: paymentMethod || 'cash',
+      cashierId: req.user.id
+    };
+
+    if (activeShift) {
+      updateFields.shiftId = activeShift._id;
+    }
+
+    if (existingOrder.fulfillmentStatus === 'pending') {
+      updateFields.fulfillmentStatus = 'preparing';
+    }
+
     // OCC: Ensure order is still unpaid before paying it
     const order = await Order.findOneAndUpdate(
       { _id: req.params.id, status: 'unpaid' },
-      { 
-        status: 'completed',
-        fulfillmentStatus: 'preparing',
-        paymentMethod: paymentMethod || 'cash',
-        cashierId: req.user.id
-      },
+      { $set: updateFields },
       { new: true }
     );
     
-    if (!order) return res.status(400).json({ message: 'Order not found, already paid, or voided' });
+    if (!order) return res.status(400).json({ message: 'Order was paid by another transaction' });
 
     const session = await mongoose.startSession();
     session.startTransaction();
