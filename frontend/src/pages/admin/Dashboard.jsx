@@ -33,7 +33,11 @@ export default function Dashboard() {
   // Real-time live sync
   useEffect(() => {
     if (!socket) return;
-    const handleSync = () => fetchDashboardData();
+    const handleSync = () => {
+      // Prevent aggressive re-fetching for heavy aggregations
+      if (timeframe === 'yearly') return;
+      fetchDashboardData();
+    };
     socket.on('order:created', handleSync);
     socket.on('shift:updated', handleSync);
     socket.on('inventory:low_stock', handleSync);
@@ -42,7 +46,7 @@ export default function Dashboard() {
       socket.off('shift:updated', handleSync);
       socket.off('inventory:low_stock', handleSync);
     };
-  }, [socket, token]);
+  }, [socket, token, timeframe]);
 
   const calcChange = (current, previous) => {
     if (previous === 0) return current > 0 ? { val: '+100%', dir: 'up' } : { val: '0%', dir: 'neutral' };
@@ -58,7 +62,7 @@ export default function Dashboard() {
   const aovChange = calcChange(data.today.aov, data.yesterday.aov);
 
   const stats = [
-    { name: timeframe === 'daily' ? "Today's Sales" : timeframe === 'weekly' ? "This Week's Sales" : timeframe === 'monthly' ? "This Month's Sales" : "Sales", value: `₱${data.today.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp, change: revChange.val, trend: revChange.dir, color: 'bg-green-50 text-green-600 border-green-100' },
+    { name: timeframe === 'daily' ? "Today's Sales" : timeframe === 'weekly' ? "This Week's Sales" : timeframe === 'monthly' ? "This Month's Sales" : timeframe === 'yearly' ? "This Year's Sales" : "Sales", value: `₱${data.today.revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: TrendingUp, change: revChange.val, trend: revChange.dir, color: 'bg-green-50 text-green-600 border-green-100' },
     { name: timeframe === 'daily' ? 'Total Orders' : 'Period Orders', value: data.today.orders.toString(), icon: Receipt, change: ordChange.val, trend: ordChange.dir, color: 'bg-blue-50 text-blue-600 border-blue-100' },
     { name: 'Average Order Value', value: `₱${data.today.aov.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: CreditCard, change: aovChange.val, trend: aovChange.dir, color: 'bg-purple-50 text-purple-600 border-purple-100' }
   ];
@@ -91,7 +95,7 @@ export default function Dashboard() {
             <option value="daily">Daily View</option>
             <option value="weekly">Weekly View</option>
             <option value="monthly">Monthly View</option>
-            
+            <option value="yearly">Yearly View</option>
           </select>
           <div className="flex items-center space-x-2 text-xs font-bold text-meza-primary bg-meza-primary/10 px-3 py-2 rounded-lg border border-meza-primary/20">
             <Activity className="w-3.5 h-3.5 animate-pulse" />
@@ -135,7 +139,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-meza-text tracking-tight flex items-center">
                 <TrendingUp className="w-4 h-4 text-meza-primary mr-2" /> 
-                {timeframe === 'daily' ? '7-Day' : timeframe === 'weekly' ? '5-Week' : '6-Month'} Revenue Trend
+                {timeframe === 'daily' ? '7-Day' : timeframe === 'weekly' ? '5-Week' : timeframe === 'monthly' ? '6-Month' : '5-Year'} Revenue Trend
               </h3>
             </div>
             <div className="h-[250px] w-full">
@@ -161,7 +165,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgb(0,0,0,0.02)] border border-gray-100 overflow-hidden">
             <div className="p-5 border-b border-gray-100 bg-[#fcf9f5]">
               <h3 className="font-bold text-meza-text tracking-tight flex items-center">
-                <Flame className="w-4 h-4 text-orange-500 mr-2" /> Top Selling Items ({timeframe === 'daily' ? '7 Days' : timeframe === 'weekly' ? '5 Weeks' : '6 Months'})
+                <Flame className="w-4 h-4 text-orange-500 mr-2" /> Top Selling Items ({timeframe === 'daily' ? '7 Days' : timeframe === 'weekly' ? '5 Weeks' : timeframe === 'monthly' ? '6 Months' : '5 Years'})
               </h3>
             </div>
             <div className="overflow-x-auto">
