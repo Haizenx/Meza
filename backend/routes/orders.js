@@ -407,6 +407,30 @@ router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) =>
   }
 });
 
+// GET /api/orders/kds/active (Fetch active orders for KDS)
+router.get('/kds/active', authenticate, async (req, res) => {
+  try {
+    const orders = await Order.find({ 
+      status: 'completed', 
+      fulfillmentStatus: { $in: ['pending', 'preparing', 'ready'] } 
+    }).sort({ createdAt: 1 }); // Oldest first
+    
+    res.json(orders);
+  } catch (err) {
+    res.status(500).send('Server error');
+  }
+});
+
+// GET /api/orders/unpaid
+router.get('/unpaid', authenticate, async (req, res) => {
+  try {
+    const orders = await Order.find({ status: 'unpaid' }).sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (err) {
+    res.status(500).send('Server error');
+  }
+});
+
 // GET /api/orders/:id
 router.get('/:id', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
@@ -513,19 +537,6 @@ router.put('/:id/void', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/orders/kds/active (Fetch active orders for KDS)
-router.get('/kds/active', authenticate, async (req, res) => {
-  try {
-    const orders = await Order.find({ 
-      status: 'completed', 
-      fulfillmentStatus: { $in: ['pending', 'preparing', 'ready'] } 
-    }).sort({ createdAt: 1 }); // Oldest first
-    
-    res.json(orders);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
-});
 
 // PUT /api/orders/:id/kds (Update KDS status)
 router.put('/:id/kds', authenticate, async (req, res) => {
@@ -550,15 +561,6 @@ router.put('/:id/kds', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/orders/unpaid
-router.get('/unpaid', authenticate, async (req, res) => {
-  try {
-    const orders = await Order.find({ status: 'unpaid' }).sort({ createdAt: -1 });
-    res.json(orders);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
-});
 
 // PUT /api/orders/:id/pay
 router.put('/:id/pay', authenticate, async (req, res) => {
