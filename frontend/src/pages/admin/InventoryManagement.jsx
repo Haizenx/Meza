@@ -279,7 +279,7 @@ export default function InventoryManagement() {
           className={`px-5 py-2.5 rounded-lg flex items-center space-x-2 font-bold text-sm transition-all ${activeTab === 'history' ? 'bg-meza-text text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
         >
           <History className="w-4 h-4" />
-          <span>Restock History</span>
+          <span>Audit & History</span>
         </button>
       </div>
 

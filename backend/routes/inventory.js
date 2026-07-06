@@ -175,16 +175,61 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
   }
 });
 // GET /api/inventory/history
-// Owner & Manager - View restock history
+// Owner & Manager - View unified restock and audit history
 router.get('/history', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
     const PurchaseOrder = require('../models/PurchaseOrder');
-    const User = require('../models/User'); // ensure populated
-    const history = await PurchaseOrder.find()
-      .populate('ingredientId', 'name')
+    const AuditLog = require('../models/AuditLog');
+    const User = require('../models/User'); 
+    const Ingredient = require('../models/Ingredient');
+
+    // Fetch Deliveries
+    const deliveries = await PurchaseOrder.find()
+      .populate('ingredientId', 'name purchaseUnit')
       .populate('receivedBy', 'name email')
-      .sort({ createdAt: -1 });
-    res.json(history);
+      .lean();
+
+    // Fetch Manual Adjustments
+    const audits = await AuditLog.find({ action: 'MANUAL_STOCK_ADJUSTMENT' })
+      .populate('targetId', 'name purchaseUnit')
+      .populate('actorId', 'name email')
+      .lean();
+
+    // Normalize and combine
+    const unifiedHistory = [];
+    
+    for (const d of deliveries) {
+      unifiedHistory.push({
+        _id: d._id,
+        type: 'DELIVERY',
+        createdAt: d.createdAt,
+        ingredientName: d.ingredientId?.name || 'Unknown Item',
+        unit: d.ingredientId?.purchaseUnit || '',
+        quantityReceived: d.quantityReceived,
+        totalCostPaid: d.totalCostPaid,
+        supplierName: d.supplierName || 'N/A',
+        actorName: d.receivedBy?.name || 'Unknown User'
+      });
+    }
+
+    for (const a of audits) {
+      unifiedHistory.push({
+        _id: a._id,
+        type: 'ADJUSTMENT',
+        createdAt: a.createdAt,
+        ingredientName: a.targetId?.name || 'Unknown Item',
+        unit: a.targetId?.purchaseUnit || '',
+        oldValue: a.oldValue,
+        newValue: a.newValue,
+        reason: a.reason || 'Manual Update from Dashboard',
+        actorName: a.actorId?.name || 'Unknown User'
+      });
+    }
+
+    // Sort chronologically descending
+    unifiedHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    res.json(unifiedHistory);
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
