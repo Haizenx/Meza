@@ -70,7 +70,8 @@ router.post('/', authenticate, authorize('owner'), [
 // Update own profile (Any authenticated user)
 router.put('/profile', authenticate, [
   body('email').optional().isEmail().normalizeEmail(),
-  body('password').optional().isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
+  body('password').optional().isLength({ min: 8, max: 72 }).withMessage('Password must be between 8 and 72 characters long'),
+  body('pin').optional().isString().isLength({ min: 4, max: 6 }).withMessage('PIN must be 4-6 digits'),
   validate
 ], async (req, res) => {
   try {
@@ -127,6 +128,11 @@ router.put('/:id', authenticate, authorize('owner'), [
     
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Privilege Escalation Guard: Prevent owners from modifying other owners
+    if (user.role === 'owner' && req.user.id !== user._id.toString()) {
+      return res.status(403).json({ message: 'Owners cannot modify other owners.' });
+    }
 
     if (name) user.name = name;
     if (email) user.email = email;
