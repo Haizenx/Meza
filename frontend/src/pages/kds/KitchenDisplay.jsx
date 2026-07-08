@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ChefHat, Check, Clock, AlertCircle, GripVertical, UtensilsCrossed } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -12,9 +12,9 @@ export default function KitchenDisplay() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [columns, setColumns] = useState({
-    pending: { id: 'pending', title: 'Pending', icon: AlertCircle, color: 'border-yellow-500/50', bg: 'bg-yellow-500/10' },
-    preparing: { id: 'preparing', title: 'Preparing', icon: ChefHat, color: 'border-blue-500/50', bg: 'bg-blue-500/10' },
-    ready: { id: 'ready', title: 'Ready to Serve', icon: Check, color: 'border-green-500/50', bg: 'bg-green-500/10' }
+    pending: { id: 'pending', title: 'Pending', icon: AlertCircle, color: 'border-yellow-500/50', bg: 'bg-[var(--color-warning)]/100/10' },
+    preparing: { id: 'preparing', title: 'Preparing', icon: ChefHat, color: 'border-[var(--color-meza-primary)]/50', bg: 'bg-[var(--color-meza-primary)]/100/10' },
+    ready: { id: 'ready', title: 'Ready to Serve', icon: Check, color: 'border-green-500/50', bg: 'bg-[var(--color-success)]/100/10' }
   });
 
   const fetchOrders = async () => {
@@ -164,46 +164,46 @@ export default function KitchenDisplay() {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            className={`mb-4 bg-white rounded-2xl overflow-hidden shadow-[0_2px_15px_rgb(0,0,0,0.04)] border transition-all ${snapshot.isDragging ? 'ring-4 ring-meza-primary/30 scale-[1.02] rotate-1 border-meza-primary' : 'border-gray-100'} ${isOverdue && !snapshot.isDragging ? 'ring-2 ring-red-500/50 border-red-200' : ''}`}
+            className={`mb-4 bg-[var(--color-meza-surface)] rounded-sm overflow-hidden shadow-[0_2px_15px_rgb(0,0,0,0.04)] border transition-all ${snapshot.isDragging ? 'ring-4 ring-[var(--color-meza-primary)]/30 scale-[1.02] rotate-1 border-[var(--color-meza-primary)]' : 'border-[var(--color-meza-border)]'} ${isOverdue && !snapshot.isDragging ? 'ring-2 ring-red-500/50 border-[var(--color-danger)]/30' : ''}`}
           >
-            <div className={`p-3.5 flex justify-between items-center border-b ${isOverdue ? 'bg-red-50 border-red-100' : 'bg-gray-50/50 border-gray-100'}`}>
+            <div className={`p-3.5 flex justify-between items-center border-b ${isOverdue ? 'bg-[var(--color-danger)]/10 border-red-100' : 'bg-[var(--color-meza-bg)]/50 border-[var(--color-meza-border)]'}`}>
               <div className="flex items-center space-x-3">
-                <GripVertical className="w-5 h-5 text-gray-300 cursor-grab" />
-                <span className="font-black text-meza-text text-lg tracking-wider">#{order._id.slice(-4).toUpperCase()}</span>
+                <GripVertical className="w-5 h-5 text-[var(--color-meza-muted)] cursor-grab" />
+                <span className="font-bold text-[var(--color-meza-text)] text-lg tracking-wider">#{order._id.slice(-4).toUpperCase()}</span>
                 {order.tableNumber && (
-                  <span className="bg-meza-primary/10 text-meza-primary border border-meza-primary/20 px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-widest">
+                  <span className="bg-[var(--color-meza-primary)]/10 text-[var(--color-meza-primary)] border border-[var(--color-meza-primary)]/20 px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-widest">
                     Table {order.tableNumber}
                   </span>
                 )}
                 {order.customerName && (
-                  <span className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded text-[11px] font-black uppercase tracking-widest">
+                  <span className="bg-[var(--color-warning)]/20 text-[var(--color-warning)] border border-[var(--color-warning)]/30 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-widest">
                     {order.customerName}
                   </span>
                 )}
               </div>
-              <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${isOverdue ? 'bg-red-500 text-white animate-pulse shadow-md' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
+              <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-sm text-xs font-bold ${isOverdue ? 'bg-[var(--color-danger)]/100 text-white animate-pulse ' : 'bg-[var(--color-meza-bg)] text-[var(--color-meza-muted)] border border-[var(--color-meza-border)]'}`}>
                 <Clock className="w-3.5 h-3.5" />
                 <span>{elapsed}m</span>
               </div>
             </div>
             
-            <div className="p-4 bg-white">
+            <div className="p-4 bg-[var(--color-meza-surface)]">
               <ul className="space-y-4">
                 {order.items.map((item, idx) => (
                   <li key={idx} className="flex items-start space-x-3 group">
-                    <span className="font-black text-meza-primary text-xl w-8 text-right bg-meza-primary/5 py-1 rounded-xl border border-meza-primary/10">{item.quantity}x</span>
+                    <span className="font-bold text-[var(--color-meza-primary)] text-xl w-8 text-right bg-[var(--color-meza-primary)]/5 py-1 rounded-sm border border-[var(--color-meza-primary)]/10">{item.quantity}x</span>
                     <div className="flex flex-col flex-1 pt-1">
-                      <span className="font-bold text-meza-text text-lg leading-tight transition-colors">{item.nameAtSale}</span>
+                      <span className="font-bold text-[var(--color-meza-text)] text-lg leading-tight transition-colors">{item.nameAtSale}</span>
                       {item.modifiers && item.modifiers.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {item.modifiers.map((m, i) => (
-                            <span key={i} className="bg-blue-50 text-blue-700 px-2 py-1 rounded-lg border border-blue-100 text-[11px] font-bold uppercase tracking-wider leading-none shadow-sm">+ {m.name}</span>
+                            <span key={i} className="bg-[var(--color-meza-primary)]/10 text-[var(--color-meza-primary)] px-2 py-1 rounded-sm border border-blue-100 text-[11px] font-bold uppercase tracking-wider leading-none ">+ {m.name}</span>
                           ))}
                         </div>
                       )}
                       {item.note && (
-                        <div className="mt-2 bg-red-50 border border-red-100 p-2.5 rounded-xl">
-                          <span className="text-sm font-bold text-red-600 italic">Note: "{item.note}"</span>
+                        <div className="mt-2 bg-[var(--color-danger)]/10 border border-red-100 p-2.5 rounded-sm">
+                          <span className="text-sm font-bold text-[var(--color-danger)] italic">Note: "{item.note}"</span>
                         </div>
                       )}
                     </div>
@@ -213,15 +213,15 @@ export default function KitchenDisplay() {
             </div>
 
             {/* Quick Action Button for non-drag users */}
-            <div className="flex bg-gray-50 divide-x divide-gray-100 border-t border-gray-100">
+            <div className="flex bg-[var(--color-meza-bg)] divide-x divide-gray-100 border-t border-[var(--color-meza-border)]">
                {order.fulfillmentStatus === 'pending' && (
-                <button onClick={() => updateStatus(order._id, 'preparing')} className="flex-1 py-3.5 text-xs font-black text-blue-600 hover:bg-blue-50 transition-colors uppercase tracking-widest">Start Preparing</button>
+                <button onClick={() => updateStatus(order._id, 'preparing')} className="flex-1 py-3.5 text-xs font-bold text-[var(--color-meza-primary)] hover:bg-[var(--color-meza-primary)]/10 transition-colors uppercase tracking-widest">Start Preparing</button>
                )}
                {order.fulfillmentStatus === 'preparing' && (
-                <button onClick={() => updateStatus(order._id, 'ready')} className="flex-1 py-3.5 text-xs font-black text-green-600 hover:bg-green-50 transition-colors uppercase tracking-widest">Mark Ready</button>
+                <button onClick={() => updateStatus(order._id, 'ready')} className="flex-1 py-3.5 text-xs font-bold text-[var(--color-success)] hover:bg-[var(--color-success)]/10 transition-colors uppercase tracking-widest">Mark Ready</button>
                )}
                {order.fulfillmentStatus === 'ready' && (
-                <button onClick={() => updateStatus(order._id, 'served')} className="flex-1 py-3.5 text-xs font-black text-gray-500 hover:bg-gray-200 transition-colors uppercase tracking-widest">Mark Served</button>
+                <button onClick={() => updateStatus(order._id, 'served')} className="flex-1 py-3.5 text-xs font-bold text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-border)] transition-colors uppercase tracking-widest">Mark Served</button>
                )}
             </div>
           </div>
@@ -231,26 +231,26 @@ export default function KitchenDisplay() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f1eb] flex flex-col font-sans text-meza-text selection:bg-meza-primary/30 selection:text-meza-text">
+    <div className="min-h-screen bg-[var(--color-meza-bg)] flex flex-col font-sans text-[var(--color-meza-text)] selection:bg-[var(--color-meza-primary)]/30 selection:text-[var(--color-meza-text)]">
       {/* Premium Light Header */}
-      <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+      <header className="bg-[var(--color-meza-surface)]/80 backdrop-blur-xl border-b border-[var(--color-meza-border)] p-4 flex justify-between items-center sticky top-0 z-20 ">
         <div className="flex items-center space-x-4">
-          <div className="bg-gradient-to-br from-meza-primary to-orange-500 p-2.5 rounded-xl shadow-lg shadow-meza-primary/20">
+          <div className="bg-gradient-to-br from-meza-primary to-orange-500 p-2.5 rounded-sm  shadow-meza-primary/20">
             <UtensilsCrossed className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-meza-text">meza<span className="text-meza-primary">.</span> KDS</h1>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-0.5">Kitchen Display System</p>
+            <h1 className="text-2xl font-bold tracking-tight text-[var(--color-meza-text)]">meza<span className="text-[var(--color-meza-primary)]">.</span> KDS</h1>
+            <p className="text-xs font-bold text-[var(--color-meza-muted)] uppercase tracking-widest mt-0.5">Kitchen Display System</p>
           </div>
         </div>
         <div className="flex items-center space-x-6">
-          <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shadow-inner hidden md:flex">
-            <button onClick={() => navigate('/cashier')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">Cashier</button>
-            <button onClick={() => navigate('/table/Kiosk')} className="px-5 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 transition-colors">Ordering</button>
-            <button className="px-5 py-2 rounded-lg bg-white shadow-sm border border-gray-200 text-sm font-black text-meza-text">KDS</button>
+          <div className="flex bg-[var(--color-meza-bg)] p-1 rounded-sm border border-[var(--color-meza-border)]  hidden md:flex">
+            <button onClick={() => navigate('/cashier')} className="px-5 py-2 rounded-sm text-sm font-bold text-[var(--color-meza-muted)] hover:text-[var(--color-meza-text)] transition-colors">Cashier</button>
+            <button onClick={() => navigate('/table/Kiosk')} className="px-5 py-2 rounded-sm text-sm font-bold text-[var(--color-meza-muted)] hover:text-[var(--color-meza-text)] transition-colors">Ordering</button>
+            <button className="px-5 py-2 rounded-sm bg-[var(--color-meza-surface)]  border border-[var(--color-meza-border)] text-sm font-bold text-[var(--color-meza-text)]">KDS</button>
           </div>
-          <div className="flex items-center space-x-2 bg-green-50 border border-green-200 px-4 py-2 rounded-full text-sm font-bold text-green-700 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
+          <div className="flex items-center space-x-2 bg-[var(--color-success)]/10 border border-[var(--color-success)]/30 px-4 py-2 rounded-full text-sm font-bold text-[var(--color-success)] ">
+            <span className="w-2 h-2 rounded-full bg-[var(--color-success)]/100 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
             <span>Live Sync</span>
           </div>
         </div>
@@ -266,14 +266,14 @@ export default function KitchenDisplay() {
             return (
               <div key={col.id} className="flex-1 min-w-[350px] max-w-lg flex flex-col">
                 {/* Column Header */}
-                <div className={`mb-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-between`}>
+                <div className={`mb-4 p-4 rounded-sm bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)]  flex items-center justify-between`}>
                   <div className="flex items-center space-x-3">
-                    <div className={`p-2 rounded-lg ${col.bg} border ${col.color}`}>
-                      <Icon className={`w-5 h-5 ${col.id === 'pending' ? 'text-yellow-600' : col.id === 'preparing' ? 'text-blue-600' : 'text-green-600'}`} />
+                    <div className={`p-2 rounded-sm ${col.bg} border ${col.color}`}>
+                      <Icon className={`w-5 h-5 ${col.id === 'pending' ? 'text-[var(--color-warning)]' : col.id === 'preparing' ? 'text-[var(--color-meza-primary)]' : 'text-[var(--color-success)]'}`} />
                     </div>
-                    <h2 className="font-black text-meza-text uppercase tracking-widest text-sm">{col.title}</h2>
+                    <h2 className="font-bold text-[var(--color-meza-text)] uppercase tracking-widest text-sm">{col.title}</h2>
                   </div>
-                  <span className="bg-gray-100 border border-gray-200 text-gray-600 px-3 py-1 rounded-full text-xs font-black">
+                  <span className="bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] text-[var(--color-meza-muted)] px-3 py-1 rounded-full text-xs font-bold">
                     {items.length}
                   </span>
                 </div>
@@ -284,16 +284,16 @@ export default function KitchenDisplay() {
                     <div 
                       ref={provided.innerRef}
                       {...provided.droppableProps}
-                      className={`flex-1 rounded-2xl p-2 transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver ? 'bg-meza-primary/5 border-2 border-dashed border-meza-primary/30' : 'bg-transparent border-2 border-transparent'}`}
+                      className={`flex-1 rounded-sm p-2 transition-colors duration-200 overflow-y-auto ${snapshot.isDraggingOver ? 'bg-[var(--color-meza-primary)]/5 border-2 border-dashed border-[var(--color-meza-primary)]/30' : 'bg-transparent border-2 border-transparent'}`}
                     >
                       {items.map((order, idx) => (
                         <OrderCard key={order._id} order={order} index={idx} />
                       ))}
                       {provided.placeholder}
                       {items.length === 0 && !snapshot.isDraggingOver && (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-70">
-                          <Icon className="w-12 h-12 mb-3 text-gray-300" />
-                          <p className="font-black text-sm uppercase tracking-widest text-gray-400">No Orders</p>
+                        <div className="h-full flex flex-col items-center justify-center text-[var(--color-meza-muted)] opacity-70">
+                          <Icon className="w-12 h-12 mb-3 text-[var(--color-meza-muted)]" />
+                          <p className="font-bold text-sm uppercase tracking-widest text-[var(--color-meza-muted)]">No Orders</p>
                         </div>
                       )}
                     </div>

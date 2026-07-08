@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Beaker, Tag, DollarSign, Image as ImageIcon, Settings2 } from 'lucide-react';
 
 export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredients, token, onSuccess }) {
@@ -187,14 +187,13 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
 
       // 2. Save Recipes
       const sizesToSave = (hasSizes && cleanedSizes.length > 0) ? cleanedSizes.map(s => s.name) : ['Regular'];
+      
+      const recipesPayload = [];
       for (const s of sizesToSave) {
         const ingList = recipes[s] || [];
         const validIngredients = ingList.filter(i => i.ingredientId && parseFloat(i.quantity) > 0);
-        
-        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
+        if (validIngredients.length > 0) {
+          recipesPayload.push({
             menuItemId: savedMenu._id,
             size: s,
             ingredients: validIngredients.map(i => ({
@@ -202,8 +201,21 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
               quantity: parseFloat(i.quantity),
               unit: i.unit
             }))
-          })
+          });
+        }
+      }
+
+      if (recipesPayload.length > 0) {
+        const recipeRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes/batch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ recipes: recipesPayload })
         });
+        
+        if (!recipeRes.ok) {
+          const errText = await recipeRes.text();
+          throw new Error(`Batch recipe save failed: ${errText}`);
+        }
       }
 
       if (onSuccess) onSuccess();

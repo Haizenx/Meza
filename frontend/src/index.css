@@ -1,33 +1,69 @@
 @import "tailwindcss";
 
 @theme {
-  --color-meza-primary: #6b3227; /* Deep brownish red from logo */
-  --color-meza-primary-hover: #52251d;
-  --color-meza-bg: #fcf9f5; /* Warm off-white cafe background */
+  --color-meza-primary: #743025; /* Meza Rust */
+  --color-meza-primary-hover: #5A251C;
+  --color-meza-bg: #F5EFE4; /* Milk Foam */
   --color-meza-surface: #ffffff;
-  --color-meza-text: #2d1a15; /* Dark espresso brown */
-  --color-meza-muted: #8c736e; /* Muted cafe brown */
-  --color-meza-border: #e6dcd8; /* Very light warm gray/brown */
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-danger: #EF4444;
+  --color-meza-text: #2E2019; /* Roasted Bark */
+  --color-meza-muted: #8F8379; /* Soft brown/gray */
+  --color-meza-border: #D9D2C5; /* Cash Register Gray */
+  --color-success: #5C6B4F; /* Moss */
+  --color-warning: #D18F3B; /* Warm mustard */
+  --color-danger: #A83232; /* Cherry */
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Zilla Slab', serif;
+  --font-mono: 'Space Mono', monospace;
 }
 
-body {
-  margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--color-meza-bg);
-  color: var(--color-meza-text);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  user-select: none; /* Prevent accidental text selection on touch tablets */
-  -webkit-user-select: none;
+@layer base {
+  body {
+    @apply m-0 font-sans bg-[var(--color-meza-bg)] text-[var(--color-meza-text)] antialiased;
+    user-select: none; /* Prevent accidental text selection on touch tablets */
+    -webkit-user-select: none;
+  }
+
+  /* Allow text selection in inputs */
+  input, textarea {
+    @apply font-sans;
+    user-select: auto;
+    -webkit-user-select: auto;
+  }
 }
 
-/* Allow text selection in inputs */
-input, textarea {
-  user-select: auto;
-  -webkit-user-select: auto;
+@layer utilities {
+  /* Receipt Edge Masking (Top and Bottom) */
+  .receipt-edge-y {
+    position: relative;
+  }
+  .receipt-edge-y::before, .receipt-edge-y::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background-size: 16px 16px;
+    background-image: radial-gradient(circle at 8px 0, transparent 4px, var(--color-meza-surface) 5px);
+    background-repeat: repeat-x;
+    z-index: 10;
+  }
+  .receipt-edge-y::before {
+    top: -8px;
+  }
+  .receipt-edge-y::after {
+    bottom: -8px;
+    transform: rotate(180deg);
+  }
+
+  /* Dot border for ledgers/receipts */
+  .receipt-divider {
+    border-bottom: 2px dotted var(--color-meza-border);
+  }
+
+  .receipt-dashed {
+    border-bottom: 2px dashed var(--color-meza-border);
+  }
 }
 
 /* Micro-Animations */
@@ -36,7 +72,7 @@ input, textarea {
 }
 .hover-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+  box-shadow: 0 10px 25px -5px rgba(46, 32, 25, 0.08), 0 8px 10px -6px rgba(46, 32, 25, 0.04);
 }
 
 .tap-scale {

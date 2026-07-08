@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Receipt, UtensilsCrossed, Calculator, Package, LogOut, CalendarRange, Users, FileText, UserCog, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';

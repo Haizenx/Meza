@@ -7,7 +7,8 @@ const purchaseOrderSchema = new mongoose.Schema({
   unitCostForBatch: { type: Number, required: true }, // Calculated: totalCostPaid / quantityReceived
   receivedAt: { type: Date, default: Date.now },
   receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  supplierName: { type: String }
+  supplierName: { type: String },
+  invoiceId: { type: String }
 }, { timestamps: true });
 // Guard: Enforce append-only at the application level
 purchaseOrderSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany', 'update'], function(next) {

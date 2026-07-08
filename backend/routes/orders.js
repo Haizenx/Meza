@@ -12,6 +12,7 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const { authenticate, authorize } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
+const AuditLog = require('../models/AuditLog');
 
 // Aggressive rate limiter for public QR ordering
 const qrLimiter = rateLimit({
@@ -25,6 +26,30 @@ const validate = (req, res, next) => {
   if (!errors.isEmpty()) return res.status(400).json({ message: 'Validation Error', errors: errors.array() });
   next();
 };
+
+// POST /api/orders/audit-void
+// Log a voided/abandoned cart from CashierMode
+router.post('/audit-void', authenticate, [
+  body('reason').isString().notEmpty(),
+  body('cartTotal').isNumeric()
+], async (req, res) => {
+  try {
+    const { reason, cartTotal, items } = req.body;
+    const log = new AuditLog({
+      action: 'CART_VOID',
+      actorId: req.user.id,
+      targetModel: 'Order',
+      oldValue: { cartTotal, items },
+      newValue: null,
+      reason: reason
+    });
+    await log.save();
+    res.status(200).json({ message: 'Void audited successfully' });
+  } catch (err) {
+    console.error('Audit Void Error:', err);
+    res.status(500).send('Server error');
+  }
+});
 
 // POST /api/orders
 // Create an order with idempotency, server-side calculation, and atomic inventory deduction
@@ -49,8 +74,7 @@ router.post('/', authenticate, [
     const processedItems = [];
     const inventoryDeductions = new Map(); // ingredientId -> quantity to deduct
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    
     try {
       for (let item of items) {
         if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
@@ -101,7 +125,7 @@ router.post('/', authenticate, [
       });
 
       // 2. Deduct Finished Goods Stock directly from MenuItem
-      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } }, { session });
+      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } });
       menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
 
       // Low Stock Alert for Finished Good
@@ -136,7 +160,7 @@ router.post('/', authenticate, [
 
     // 4. Execute Atomic Raw Inventory Deductions
     for (let [ingId, amount] of inventoryDeductions.entries()) {
-      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } }, { session });
+      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
       const ingredient = await Ingredient.findById(ingId).session(session);
       if (ingredient) {
 
@@ -204,8 +228,7 @@ router.post('/', authenticate, [
       await transaction.save({ session });
     }
 
-    await session.commitTransaction();
-    session.endSession();
+    
 
     // Broadcast new order to Dashboard and KDS
     if (req.io) {
@@ -216,11 +239,7 @@ router.post('/', authenticate, [
 
     res.status(201).json(newOrder);
     
-    } catch (transactionErr) {
-      await session.abortTransaction();
-      session.endSession();
-      throw transactionErr;
-    }
+    } catch (err) { throw err; }
 
   } catch (err) {
     // Handle MongoDB Duplicate Key Error for localUUID (Fixes double-tap offline sync race condition)
@@ -257,8 +276,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
     const processedItems = [];
     const inventoryDeductions = new Map(); 
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    
     try {
       for (let item of items) {
         if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
@@ -308,7 +326,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
         modifiers: verifiedModifiers || []
       });
 
-      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } }, { session });
+      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } });
       menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
 
       if (menuItem.stockQuantity <= (menuItem.lowStockThreshold || 5)) {
@@ -339,7 +357,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
     const total = subtotal;
 
     for (let [ingId, amount] of inventoryDeductions.entries()) {
-      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } }, { session });
+      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
       const ingredient = await Ingredient.findById(ingId).session(session);
       if (ingredient) {
 
@@ -388,8 +406,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
       await transaction.save({ session });
     }
 
-    await session.commitTransaction();
-    session.endSession();
+    
 
     if (req.io) {
       req.io.emit('order:created', newOrder);
@@ -403,11 +420,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
 
     res.status(201).json(newOrder);
 
-    } catch (transactionErr) {
-      await session.abortTransaction();
-      session.endSession();
-      throw transactionErr;
-    }
+    } catch (err) { throw err; }
 
   } catch (err) {
     if (err.code === 11000 && err.keyPattern && err.keyPattern.localUUID) {
@@ -510,8 +523,7 @@ router.put('/:id/void', authenticate, async (req, res) => {
     order.voidedBy = authorizedManager._id;
     order.voidReason = voidReason;
     
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    
     try {
       await order.save({ session });
 
@@ -534,24 +546,19 @@ router.put('/:id/void', authenticate, async (req, res) => {
       // RESTORE INVENTORY: Reverse stock deductions for voided order
       for (const item of order.items) {
         // Restore finished goods stock
-        await MenuItem.updateOne({ _id: item.menuItemId }, { $inc: { stockQuantity: item.quantity } }, { session });
+        await MenuItem.updateOne({ _id: item.menuItemId }, { $inc: { stockQuantity: item.quantity } });
         
         // Restore raw ingredient stock based on recipe
         const recipe = await Recipe.findOne({ menuItemId: item.menuItemId, size: item.size || 'Regular' }).session(session);
         if (recipe && recipe.ingredients) {
           for (const ri of recipe.ingredients) {
-            await Ingredient.updateOne({ _id: ri.ingredientId }, { $inc: { stockQuantity: ri.quantity * item.quantity } }, { session });
+            await Ingredient.updateOne({ _id: ri.ingredientId }, { $inc: { stockQuantity: ri.quantity * item.quantity } });
           }
         }
       }
 
-      await session.commitTransaction();
-      session.endSession();
-    } catch (transactionErr) {
-      await session.abortTransaction();
-      session.endSession();
-      throw transactionErr;
-    }
+      
+    } catch (err) { throw err; }
 
     if (req.io) {
       req.io.emit('order:updated', order);
@@ -624,8 +631,7 @@ router.put('/:id/pay', authenticate, async (req, res) => {
     
     if (!order) return res.status(400).json({ message: 'Order was paid by another transaction' });
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    
     try {
       // Create transaction for financial records
 
@@ -642,13 +648,8 @@ router.put('/:id/pay', authenticate, async (req, res) => {
       });
       await transaction.save({ session });
 
-      await session.commitTransaction();
-      session.endSession();
-    } catch (transactionErr) {
-      await session.abortTransaction();
-      session.endSession();
-      throw transactionErr;
-    }
+      
+    } catch (err) { throw err; }
 
     if (req.io) {
       req.io.emit('order:updated', order);

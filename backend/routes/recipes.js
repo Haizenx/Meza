@@ -33,7 +33,35 @@ router.post('/', authenticate, authorize('owner'), async (req, res) => {
     
     res.status(201).json(recipe);
   } catch (err) {
-    res.status(500).send('Server error');
+    console.error('Recipe Save Error:', err);
+    res.status(500).send('Server error: ' + err.message);
+  }
+});
+// POST /api/recipes/batch
+// Owner only
+router.post('/batch', authenticate, authorize('owner'), async (req, res) => {
+  try {
+    const { recipes } = req.body;
+    if (!Array.isArray(recipes)) {
+      return res.status(400).send('Expected recipes array');
+    }
+
+    const bulkOps = recipes.map(r => ({
+      updateOne: {
+        filter: { menuItemId: r.menuItemId, size: r.size || 'Regular' },
+        update: { $set: { ingredients: r.ingredients } },
+        upsert: true
+      }
+    }));
+
+    if (bulkOps.length > 0) {
+      await Recipe.bulkWrite(bulkOps);
+    }
+    
+    res.status(200).json({ message: 'Batch save successful' });
+  } catch (err) {
+    console.error('Batch Recipe Save Error:', err);
+    res.status(500).send('Server error: ' + err.message);
   }
 });
 

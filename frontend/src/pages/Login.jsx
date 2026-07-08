@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Coffee, Lock, Mail, ArrowRight } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Download } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -37,7 +37,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/auth/login`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -47,10 +47,6 @@ export default function Login() {
       const data = await res.json();
 
       if (res.ok) {
-        // We need the token for socket.io in memory, so we'll grab it if returned.
-        // The backend auth.js needs to return the token to memory, while storing it in httpOnly for requests.
-        // Wait, earlier I didn't return the token in res.json() in auth.js to comply with "Store JWT in httpOnly".
-        // Let's assume backend returns token for socket.io but we just don't store it in localStorage.
         login(data.token, data.user);
         navigate(data.user.role === 'cashier' ? '/cashier' : '/admin/dashboard');
       } else {
@@ -64,83 +60,101 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f4f1eb] relative overflow-hidden font-sans">
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30"></div>
+    <div className="min-h-screen flex flex-col md:flex-row bg-[var(--color-meza-bg)] font-sans">
       
-      <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md relative z-10 border border-gray-100">
-        <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-meza-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-6 transform rotate-3">
-            <Coffee className="w-8 h-8 text-meza-primary transform -rotate-3" strokeWidth={2.5} />
-          </div>
-          <h1 className="text-3xl font-black text-meza-text tracking-tight mb-2">meza<span className="text-meza-primary">.</span></h1>
-          <p className="text-gray-500 font-medium text-sm">Sign in to your account</p>
+      {/* Brand Panel (Left) */}
+      <div className="flex-1 flex flex-col justify-center items-center relative overflow-hidden bg-[var(--color-meza-primary)] p-12 text-white shadow-2xl">
+        {/* Subtle Grain Texture overlay */}
+        <div 
+          className="absolute inset-0 opacity-[0.05] mix-blend-multiply pointer-events-none" 
+          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }}
+        ></div>
+        
+        <div className="relative z-10 flex flex-col items-center">
+          <img src="/src/assets/meza-logo.png" alt="Meza Cafe" className="w-32 h-32 rounded-xl shadow-2xl mb-8 border-4 border-white/20" />
+          
+          <div className="w-32 receipt-divider mb-6 opacity-40 border-white"></div>
+          
+          <p className="font-mono text-white/80 tracking-widest uppercase text-sm">
+            Digital System Suite
+          </p>
         </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm font-bold flex items-center border border-red-100">
-            <div className="w-2 h-2 bg-red-500 rounded-full mr-3"></div>
-            {error}
-          </div>
-        )}
-
-
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Email Address</label>
-            <div className="relative">
-              <Mail className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input 
-                type="email" 
-                required 
-                className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 transition-all font-semibold text-meza-text"
-                placeholder="hello@meza.cafe"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider ml-1">Password</label>
-            <div className="relative">
-              <Lock className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input 
-                type="password" 
-                required 
-                className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 transition-all font-semibold text-meza-text"
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={isLoading}
-            className="w-full bg-meza-text hover:bg-meza-primary text-white py-4 rounded-xl font-bold tracking-wide transition-all mt-4 flex items-center justify-center group active:scale-[0.98] cursor-pointer disabled:opacity-70 shadow-md"
-          >
-            <span>{isLoading ? 'Authenticating...' : 'Sign In'}</span>
-            {!isLoading && <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />}
-          </button>
-        </form>
       </div>
 
-      {/* Floating Install App Button */}
-      {deferredPrompt && (
-        <div className="absolute bottom-6 right-6 z-20">
-          <button 
-            onClick={handleInstallClick}
-            className="bg-white text-meza-text hover:text-meza-primary border border-gray-200 shadow-xl py-3 px-6 rounded-full font-bold tracking-wide transition-all flex items-center justify-center cursor-pointer hover:-translate-y-1 active:scale-95"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Install Meza App
-          </button>
+      {/* Form Panel (Right) */}
+      <div className="flex-1 flex items-center justify-center bg-[var(--color-meza-surface)] p-8 md:p-16 shadow-[-20px_0_40px_rgba(46,32,25,0.03)] z-10 relative">
+        <div className="w-full max-w-md">
+          <div className="mb-12">
+            <h2 className="font-display text-3xl font-semibold text-[var(--color-meza-text)] mb-2">Sign In</h2>
+            <p className="text-[var(--color-meza-muted)] font-sans">Enter your credentials to access the system.</p>
+          </div>
+
+          {error && (
+            <div className="mb-8 p-4 bg-red-50 text-[var(--color-danger)] rounded-sm text-sm font-semibold flex items-center border-l-4 border-[var(--color-danger)]">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-[var(--color-meza-muted)] uppercase tracking-wider ml-1">Email Address</label>
+              <div className="relative">
+                <Mail className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-meza-border)]" />
+                <input 
+                  type="email" 
+                  required 
+                  className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-[var(--color-meza-border)] rounded-sm outline-none focus:border-[var(--color-meza-primary)] focus:ring-1 focus:ring-[var(--color-meza-primary)] transition-all font-medium text-[var(--color-meza-text)]"
+                  placeholder="hello@meza.cafe"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-[var(--color-meza-muted)] uppercase tracking-wider ml-1">Password</label>
+              <div className="relative">
+                <Lock className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-meza-border)]" />
+                <input 
+                  type="password" 
+                  required 
+                  className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border border-[var(--color-meza-border)] rounded-sm outline-none focus:border-[var(--color-meza-primary)] focus:ring-1 focus:ring-[var(--color-meza-primary)] transition-all font-medium text-[var(--color-meza-text)]"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <button 
+              type="submit" 
+              disabled={isLoading}
+              className="w-full bg-[var(--color-meza-primary)] hover:bg-[var(--color-meza-primary-hover)] text-white py-4 rounded-sm font-bold tracking-wide transition-all mt-6 flex items-center justify-center group active:scale-[0.98] cursor-pointer disabled:opacity-70"
+            >
+              <span>{isLoading ? 'Authenticating...' : 'Sign In'}</span>
+              {!isLoading && <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />}
+            </button>
+          </form>
+
+          {/* Footer version mark */}
+          <div className="mt-16 text-center">
+            <p className="font-mono text-xs text-[var(--color-meza-border)]">v.2.0.4 Meza Systems</p>
+          </div>
         </div>
-      )}
+
+        {/* Floating Install App Button */}
+        {deferredPrompt && (
+          <div className="absolute bottom-6 right-6 z-20">
+            <button 
+              onClick={handleInstallClick}
+              className="bg-white text-[var(--color-meza-text)] hover:text-[var(--color-meza-primary)] border border-[var(--color-meza-border)] shadow-xl py-3 px-6 rounded-full font-bold tracking-wide transition-all flex items-center justify-center cursor-pointer hover:-translate-y-1 active:scale-95 text-sm"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Install App
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

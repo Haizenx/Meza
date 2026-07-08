@@ -22,7 +22,8 @@ const purchaseSchema = z.object({
     ingredientId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid Mongo ID"),
     quantityReceived: z.number().positive(),
     totalCostPaid: z.number().nonnegative(),
-    supplierName: z.string().max(100).optional()
+    supplierName: z.string().max(100).optional(),
+    invoiceId: z.string().max(100).optional()
   })
 });
 
@@ -122,7 +123,7 @@ router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(ingr
 router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZod(purchaseSchema), async (req, res) => {
   try {
     const PurchaseOrder = require('../models/PurchaseOrder');
-    const { ingredientId, quantityReceived, totalCostPaid, supplierName } = req.body;
+    const { ingredientId, quantityReceived, totalCostPaid, supplierName, invoiceId } = req.body;
     
     const ingredient = await Ingredient.findById(ingredientId);
     if (!ingredient) return res.status(404).send('Ingredient not found');
@@ -139,37 +140,26 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
     
     const newMovingAverageCost = newTotalValue / newTotalStock;
 
-    const mongoose = require('mongoose');
-    const session = await mongoose.startSession();
-    session.startTransaction();
-    try {
-      // Create Purchase Order Record
-      const po = new PurchaseOrder({
-        ingredientId,
-        quantityReceived,
-        totalCostPaid,
-        unitCostForBatch,
-        receivedBy: req.user.id,
-        supplierName
-      });
-      await po.save({ session });
+    // Create Purchase Order Record
+    const po = new PurchaseOrder({
+      ingredientId,
+      quantityReceived,
+      totalCostPaid,
+      unitCostForBatch,
+      receivedBy: req.user.id,
+      supplierName,
+      invoiceId
+    });
+    await po.save();
 
-      // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
-      await Ingredient.findByIdAndUpdate(ingredientId, {
-        $inc: { stockQuantity: quantityReceived },
-        $set: { 
-          movingAverageCost: newMovingAverageCost,
-          unitCost: newMovingAverageCost
-        }
-      }, { session });
-
-      await session.commitTransaction();
-      session.endSession();
-    } catch (transactionErr) {
-      await session.abortTransaction();
-      session.endSession();
-      throw transactionErr;
-    }
+    // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
+    await Ingredient.findByIdAndUpdate(ingredientId, {
+      $inc: { stockQuantity: quantityReceived },
+      $set: { 
+        movingAverageCost: newMovingAverageCost,
+        unitCost: newMovingAverageCost
+      }
+    });
     
     // update local reference if needed for response
     ingredient.stockQuantity += quantityReceived;
@@ -214,7 +204,7 @@ router.get('/history', authenticate, authorize('owner', 'manager'), async (req, 
       unifiedHistory.push({
         _id: d._id,
         type: 'DELIVERY',
-        createdAt: d.createdAt,
+        createdAt: d.receivedAt || d.createdAt,
         ingredientName: d.ingredientId?.name || 'Unknown Item',
         unit: d.ingredientId?.purchaseUnit || '',
         quantityReceived: d.quantityReceived,
@@ -242,6 +232,20 @@ router.get('/history', authenticate, authorize('owner', 'manager'), async (req, 
     unifiedHistory.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     res.json(unifiedHistory);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// DELETE /api/inventory/:id
+// Owner & Manager - Delete an ingredient
+router.delete('/:id', authenticate, authorize('owner', 'manager'), async (req, res) => {
+  try {
+    const existingItem = await Ingredient.findById(req.params.id);
+    if (!existingItem) return res.status(404).send('Not found');
+    await Ingredient.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Ingredient deleted successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');

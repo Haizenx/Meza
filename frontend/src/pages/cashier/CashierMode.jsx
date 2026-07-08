@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog, Pause, Bell, Percent } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog, Pause, Bell, Percent } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { openDB } from 'idb';
-import { getPendingOrders, savePendingOrder, deletePendingOrder, updatePendingOrder } from '../../utils/idb';
+import { getPendingOrders, savePendingOrder, deletePendingOrder } from '../../utils/idb';
 
 const syncChannel = new BroadcastChannel('meza-offline-sync');
 import { io } from 'socket.io-client';
@@ -59,6 +58,9 @@ export default function CashierMode() {
   const [splitPayments, setSplitPayments] = useState([]); // Array of { method, amount }
   const [printOrder, setPrintOrder] = useState(null);
   const [checkoutSuccessModal, setCheckoutSuccessModal] = useState(null);
+  
+  // Auditing States
+  const [voidReasonModal, setVoidReasonModal] = useState({ isOpen: false, reason: 'Customer Changed Mind' });
 
   // Initialize DB and Sync Loop
   useEffect(() => {
@@ -451,8 +453,8 @@ export default function CashierMode() {
       if (res.ok && data.success) {
         // PIN Approved
         if (pinModal.action === 'void') {
-          setCart([]);
-          alert('Order voided successfully.');
+          // Instead of clearing instantly, prompt for reason
+          setVoidReasonModal({ isOpen: true, reason: 'Customer Changed Mind' });
         } else if (pinModal.action === 'discount') {
           setDiscountAmount(pinModal.payload);
           alert('Discount applied successfully.');
@@ -466,6 +468,24 @@ export default function CashierMode() {
     } catch (err) {
       alert('Error verifying PIN');
     }
+  };
+
+  const submitVoidAudit = async () => {
+    const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/audit-void`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ reason: voidReasonModal.reason, cartTotal: total, items: cart })
+      });
+    } catch (err) {
+      console.error('Failed to log void audit', err);
+    }
+    setCart([]);
+    setDiscountAmount(0);
+    setCustomerName('');
+    showToast('Order voided and logged.', 'info');
+    setVoidReasonModal({ isOpen: false, reason: 'Customer Changed Mind' });
   };
 
   // --- CART LOGIC ---
@@ -515,6 +535,16 @@ export default function CashierMode() {
     setCart(cart.map(item => {
       if (item.cartItemId === cartItemId) {
         const newQ = item.quantity + delta;
+        
+        // Smart Stock Validation for + button
+        if (delta > 0 && item.calculatedStock !== null && item.calculatedStock !== undefined) {
+          const totalItemQty = cart.filter(c => c._id === item._id).reduce((sum, c) => sum + c.quantity, 0);
+          if (totalItemQty >= item.calculatedStock) {
+            showToast(`Cannot add more. Only ${item.calculatedStock} in stock!`, 'warning');
+            return item;
+          }
+        }
+
         return newQ > 0 ? { ...item, quantity: newQ, note: note !== undefined ? note : item.note } : item;
       }
       return item;
@@ -578,17 +608,17 @@ export default function CashierMode() {
 
   return (
     <>
-      <div className="flex h-screen bg-[#f4f1eb] font-sans antialiased relative overflow-hidden print:hidden">
+      <div className="flex h-screen bg-[var(--color-meza-bg)] font-sans antialiased relative overflow-hidden print:hidden">
 
         {/* Click Effects */}
         {clickEffects.map(ce => (
-          <div key={ce.id} className="absolute text-meza-primary font-black text-2xl pointer-events-none drop-shadow-md animate-ping" style={{ left: ce.x - 10, top: ce.y - 20, zIndex: 9999, animationDuration: '0.6s' }}>+1</div>
+          <div key={ce.id} className="absolute text-[var(--color-meza-primary)] font-bold text-2xl pointer-events-none drop- animate-ping" style={{ left: ce.x - 10, top: ce.y - 20, zIndex: 9999, animationDuration: '0.6s' }}>+1</div>
         ))}
 
         {/* Toasts */}
         <div className="absolute top-20 right-6 z-[9999] flex flex-col space-y-2 pointer-events-none">
           {toasts.map(t => (
-            <div key={t.id} className={`px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 transform transition-all ${t.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-900 text-white'}`}>
+            <div key={t.id} className={`px-4 py-3 rounded-sm-sm  flex items-center space-x-3 transform transition-all ${t.type === 'success' ? 'bg-[var(--color-success)] text-white' : 'bg-gray-900 text-white'}`}>
               {t.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
               <span className="font-bold text-sm tracking-wide">{t.message}</span>
             </div>
@@ -598,26 +628,26 @@ export default function CashierMode() {
         {/* SHIFT GATES */}
         {isStartingShift && (
           <div className="absolute inset-0 bg-meza-text/60 backdrop-blur-sm z-[100] flex items-center justify-center">
-            <form onSubmit={handleStartShift} className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100">
-              <div className="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center mb-4"><Play className="w-6 h-6" /></div>
-              <h2 className="text-2xl font-black text-meza-text mb-1">Start Shift</h2>
-              <p className="text-sm text-gray-500 mb-6">Enter starting cash float.</p>
-              <input type="number" step="0.01" min="0" required value={startingCashInput} onChange={e => setStartingCashInput(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl mb-6 font-bold" placeholder="₱0.00" />
-              <button type="submit" className="w-full py-3 bg-meza-primary text-white rounded-xl font-bold">Open Register</button>
+            <form onSubmit={handleStartShift} className="bg-[var(--color-meza-surface)] p-8 rounded-sm-sm w-full max-w-sm  border border-[var(--color-meza-border)]">
+              <div className="w-12 h-12 bg-[var(--color-success)]/10 text-[var(--color-success)] rounded-sm-full flex items-center justify-center mb-4"><Play className="w-6 h-6" /></div>
+              <h2 className="text-2xl font-display font-bold text-[var(--color-meza-text)] mb-1">Start Shift</h2>
+              <p className="text-sm text-[var(--color-meza-muted)] mb-6">Enter starting cash float.</p>
+              <input type="number" step="0.01" min="0" required value={startingCashInput} onChange={e => setStartingCashInput(e.target.value)} className="w-full px-4 py-3 bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm-sm mb-6 font-bold" placeholder="₱0.00" />
+              <button type="submit" className="w-full py-3 bg-[var(--color-meza-primary)] text-white rounded-sm-sm font-bold">Open Register</button>
             </form>
           </div>
         )}
 
         {isEndingShift && (
           <div className="absolute inset-0 bg-meza-text/60 backdrop-blur-sm z-[100] flex items-center justify-center">
-            <form onSubmit={handleEndShift} className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100">
-              <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-4"><SquareTerminal className="w-6 h-6" /></div>
-              <h2 className="text-2xl font-black text-meza-text mb-1">Close Register</h2>
-              <p className="text-sm text-gray-500 mb-6">Count actual cash in drawer.</p>
-              <input type="number" step="0.01" min="0" required value={actualCashInput} onChange={e => setActualCashInput(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl mb-6 font-bold" placeholder="₱0.00" />
+            <form onSubmit={handleEndShift} className="bg-[var(--color-meza-surface)] p-8 rounded-sm-sm w-full max-w-sm  border border-[var(--color-meza-border)]">
+              <div className="w-12 h-12 bg-[var(--color-danger)]/10 text-[var(--color-danger)] rounded-sm-full flex items-center justify-center mb-4"><SquareTerminal className="w-6 h-6" /></div>
+              <h2 className="text-2xl font-display font-bold text-[var(--color-meza-text)] mb-1">Close Register</h2>
+              <p className="text-sm text-[var(--color-meza-muted)] mb-6">Count actual cash in drawer.</p>
+              <input type="number" step="0.01" min="0" required value={actualCashInput} onChange={e => setActualCashInput(e.target.value)} className="w-full px-4 py-3 bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm-sm mb-6 font-bold" placeholder="₱0.00" />
               <div className="flex space-x-3">
-                <button type="button" onClick={() => setIsEndingShift(false)} className="flex-1 py-3 text-gray-500 hover:bg-gray-50 rounded-xl font-bold">Cancel</button>
-                <button type="submit" className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold">End Shift</button>
+                <button type="button" onClick={() => setIsEndingShift(false)} className="flex-1 py-3 text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-bg)] rounded-sm-sm font-bold">Cancel</button>
+                <button type="submit" className="flex-1 py-3 bg-[var(--color-danger)] text-white rounded-sm-sm font-bold">End Shift</button>
               </div>
             </form>
           </div>
@@ -626,14 +656,14 @@ export default function CashierMode() {
         {/* MODIFIER MODAL */}
         {modifierModal.isOpen && modifierModal.item && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-[var(--color-meza-surface)] rounded-sm-sm w-full max-w-lg overflow-hidden  flex flex-col max-h-[90vh]">
               <div className="bg-gray-900 p-4 text-white text-center">
-                <h3 className="font-black text-xl tracking-wider uppercase">Customize {modifierModal.item.name}</h3>
+                <h3 className="font-bold text-xl tracking-wider uppercase">Customize {modifierModal.item.name}</h3>
               </div>
               <div className="p-6 flex-1 overflow-y-auto">
                 {(modifierModal.item.modifierGroups || []).map((group, gIdx) => (
                   <div key={gIdx} className="mb-6 last:mb-0">
-                    <h4 className="font-bold text-gray-800 uppercase tracking-widest text-sm mb-3 border-b pb-2">{group.name} {group.multiSelect ? '(Choose multiple)' : '(Choose one)'}</h4>
+                    <h4 className="font-bold text-[var(--color-meza-text)] uppercase tracking-widest text-sm mb-3 border-b pb-2">{group.name} {group.multiSelect ? '(Choose multiple)' : '(Choose one)'}</h4>
                     <div className="space-y-2">
                       {group.options.map((opt, oIdx) => {
                         const isSelected = modifierModal.selectedModifiers.some(m => m.name === opt.name);
@@ -653,10 +683,10 @@ export default function CashierMode() {
                               }
                               setModifierModal(prev => ({ ...prev, selectedModifiers: newMods }));
                             }}
-                            className={`flex justify-between items-center p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected ? 'border-meza-primary bg-meza-primary/10' : 'border-gray-200 hover:border-meza-primary/50'}`}
+                            className={`flex justify-between items-center p-3 rounded-sm-sm border-2 cursor-pointer transition-all ${isSelected ? 'border-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/10' : 'border-[var(--color-meza-border)] hover:border-[var(--color-meza-primary)]/50'}`}
                           >
-                            <span className="font-bold text-gray-800">{opt.name}</span>
-                            <span className="font-bold text-gray-500">{opt.price > 0 ? `+₱${opt.price}` : 'Free'}</span>
+                            <span className="font-bold text-[var(--color-meza-text)]">{opt.name}</span>
+                            <span className="font-bold text-[var(--color-meza-muted)]">{opt.price > 0 ? `+₱${opt.price}` : 'Free'}</span>
                           </div>
                         );
                       })}
@@ -664,14 +694,14 @@ export default function CashierMode() {
                   </div>
                 ))}
               </div>
-              <div className="p-4 bg-gray-50 border-t grid grid-cols-2 gap-3">
-                <button onClick={() => setModifierModal({ isOpen: false, item: null, selectedModifiers: [] })} className="py-3 font-bold text-gray-600 bg-gray-200 rounded-xl uppercase tracking-wider">Cancel</button>
+              <div className="p-4 bg-[var(--color-meza-bg)] border-t grid grid-cols-2 gap-3">
+                <button onClick={() => setModifierModal({ isOpen: false, item: null, selectedModifiers: [] })} className="py-3 font-bold text-[var(--color-meza-muted)] bg-[var(--color-meza-border)] rounded-sm-sm uppercase tracking-wider">Cancel</button>
                 <button
                   onClick={() => {
                     addToCart(modifierModal.item, modifierModal.selectedModifiers);
                     setModifierModal({ isOpen: false, item: null, selectedModifiers: [] });
                   }}
-                  className="py-3 font-bold text-white bg-meza-primary rounded-xl uppercase tracking-wider shadow-md"
+                  className="py-3 font-bold text-white bg-[var(--color-meza-primary)] rounded-sm-sm uppercase tracking-wider "
                 >Add to Cart</button>
               </div>
             </div>
@@ -681,17 +711,17 @@ export default function CashierMode() {
         {/* PIN MODAL */}
         {pinModal.isOpen && (
           <div className="absolute inset-0 bg-meza-text/80 backdrop-blur-md z-[200] flex items-center justify-center">
-            <form onSubmit={handlePinSubmit} className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100 text-center">
-              <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-4"><Lock className="w-6 h-6" /></div>
-              <h2 className="text-xl font-black text-meza-text mb-2">Manager PIN Required</h2>
-              <p className="text-sm text-gray-500 mb-4">Authorize this action.</p>
+            <form onSubmit={handlePinSubmit} className="bg-[var(--color-meza-surface)] p-8 rounded-sm-sm w-full max-w-sm  border border-[var(--color-meza-border)] text-center">
+              <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-sm-full flex items-center justify-center mx-auto mb-4"><Lock className="w-6 h-6" /></div>
+              <h2 className="text-xl font-bold text-[var(--color-meza-text)] mb-2">Manager PIN Required</h2>
+              <p className="text-sm text-[var(--color-meza-muted)] mb-4">Authorize this action.</p>
               
               <div className="text-left mb-4">
-                <label className="text-xs font-black text-gray-500 uppercase tracking-widest ml-1 mb-1 block">Authorizing Manager</label>
+                <label className="text-xs font-bold text-[var(--color-meza-muted)] uppercase tracking-widest ml-1 mb-1 block">Authorizing Manager</label>
                 <select 
                   value={selectedManagerId} 
                   onChange={e => setSelectedManagerId(e.target.value)}
-                  className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-meza-primary font-bold transition-colors appearance-none"
+                  className="w-full bg-[var(--color-meza-bg)] border-2 border-[var(--color-meza-border)] rounded-sm-sm px-4 py-3 outline-none focus:border-[var(--color-meza-primary)] font-bold transition-colors appearance-none"
                   required
                 >
                   <option value="" disabled>Select Manager</option>
@@ -701,10 +731,10 @@ export default function CashierMode() {
                 </select>
               </div>
 
-              <input type="password" required autoFocus value={pinInput} onChange={e => setPinInput(e.target.value)} className="w-full text-center tracking-widest text-2xl px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl mb-6 font-bold" placeholder="••••" maxLength={4} />
+              <input type="password" required autoFocus value={pinInput} onChange={e => setPinInput(e.target.value)} className="w-full text-center tracking-widest text-2xl px-4 py-3 bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm-sm mb-6 font-bold" placeholder="••••" maxLength={4} />
               <div className="flex space-x-3">
-                <button type="button" onClick={() => setPinModal({ isOpen: false })} className="flex-1 py-3 text-gray-500 hover:bg-gray-50 rounded-xl font-bold">Cancel</button>
-                <button type="submit" className="flex-1 py-3 bg-purple-600 text-white rounded-xl font-bold">Verify</button>
+                <button type="button" onClick={() => setPinModal({ isOpen: false })} className="flex-1 py-3 text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-bg)] rounded-sm-sm font-bold">Cancel</button>
+                <button type="submit" className="flex-1 py-3 bg-purple-600 text-white rounded-sm-sm font-bold">Verify</button>
               </div>
             </form>
           </div>
@@ -713,25 +743,60 @@ export default function CashierMode() {
         {/* CHECKOUT SUCCESS MODAL */}
         {checkoutSuccessModal && (
           <div className="absolute inset-0 bg-meza-text/80 backdrop-blur-md z-[200] flex items-center justify-center">
-            <div className="bg-white p-8 rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100 text-center animate-in fade-in zoom-in duration-300">
-              <div className="w-16 h-16 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="bg-[var(--color-meza-surface)] p-8 rounded-sm-sm w-full max-w-sm  border border-[var(--color-meza-border)] text-center animate-in fade-in zoom-in duration-300">
+              <div className="w-16 h-16 bg-[var(--color-success)]/10 text-[var(--color-success)] rounded-sm-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-8 h-8" />
               </div>
-              <h2 className="text-2xl font-black text-meza-text mb-2">Payment Successful!</h2>
-              <p className="text-sm text-gray-500 mb-6">Order #{checkoutSuccessModal.localUUID.slice(-4).toUpperCase()} has been saved.</p>
+              <h2 className="text-2xl font-bold text-[var(--color-meza-text)] mb-2">Payment Successful!</h2>
+              <p className="text-sm text-[var(--color-meza-muted)] mb-6">Order #{checkoutSuccessModal.localUUID.slice(-4).toUpperCase()} has been saved.</p>
               
               <div className="flex flex-col space-y-3">
                 <button onClick={() => { 
                   setPrintOrder(checkoutSuccessModal); 
                   setTimeout(() => window.print(), 100);
                   setCheckoutSuccessModal(null); 
-                }} className="w-full py-4 bg-meza-primary hover:bg-meza-primary-hover text-white rounded-xl font-bold tracking-widest uppercase text-sm shadow-md transition-all flex items-center justify-center space-x-2">
+                }} className="w-full py-4 bg-[var(--color-meza-primary)] hover:bg-[var(--color-meza-primary)]-hover text-white rounded-sm-sm font-bold tracking-widest uppercase text-sm  transition-all flex items-center justify-center space-x-2">
                   <Printer className="w-5 h-5" />
                   <span>Print Receipt</span>
                 </button>
-                <button onClick={() => setCheckoutSuccessModal(null)} className="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold tracking-widest uppercase text-sm transition-all">
+                <button onClick={() => setCheckoutSuccessModal(null)} className="w-full py-4 bg-[var(--color-meza-bg)] hover:bg-[var(--color-meza-border)] text-[var(--color-meza-muted)] rounded-sm-sm font-bold tracking-widest uppercase text-sm transition-all">
                   No Receipt Needed
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Void Reason Modal */}
+        {voidReasonModal.isOpen && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in zoom-in duration-200">
+            <div className="bg-[var(--color-meza-surface)] rounded-sm-lg p-6 w-96 shadow-2xl border border-[var(--color-danger)]/20">
+              <div className="flex items-center space-x-3 mb-6 pb-4 border-b border-[var(--color-meza-border)]">
+                <div className="p-2 bg-[var(--color-danger)]/10 text-[var(--color-danger)] rounded-sm-md">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[var(--color-meza-text)] tracking-tight">Void Reason</h3>
+                  <p className="text-xs text-[var(--color-meza-muted)]">Please select why this order is being voided.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <select 
+                  value={voidReasonModal.reason} 
+                  onChange={e => setVoidReasonModal({...voidReasonModal, reason: e.target.value})}
+                  className="w-full px-4 py-3 bg-[var(--color-meza-bg)] border-2 border-[var(--color-meza-border)] rounded-sm-sm outline-none focus:border-[var(--color-meza-primary)] font-bold text-[var(--color-meza-text)]"
+                >
+                  <option value="Customer Changed Mind">Customer Changed Mind</option>
+                  <option value="Wrong Entry / Mistake">Wrong Entry / Mistake</option>
+                  <option value="Customer Walked Out">Customer Walked Out</option>
+                  <option value="System Test">System Test</option>
+                </select>
+
+                <div className="flex space-x-3 pt-2">
+                  <button type="button" onClick={() => setVoidReasonModal({ isOpen: false, reason: '' })} className="flex-1 py-3 text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-bg)] rounded-sm-sm font-bold">Cancel</button>
+                  <button type="button" onClick={submitVoidAudit} className="flex-1 py-3 bg-[var(--color-danger)] text-white hover:bg-red-700 rounded-sm-sm font-bold tracking-wide">Confirm Void</button>
+                </div>
               </div>
             </div>
           </div>
@@ -741,15 +806,15 @@ export default function CashierMode() {
         <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${(isStartingShift || pinModal.isOpen || checkoutSuccessModal) ? 'blur-md pointer-events-none' : ''}`}>
 
           {/* Header */}
-          <header className="h-16 bg-white border-b border-gray-200 px-6 flex justify-between items-center shadow-sm">
+          <header className="h-16 bg-[var(--color-meza-surface)] border-b border-[var(--color-meza-border)] px-6 flex justify-between items-center ">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-black text-meza-text hidden md:block">meza.</h1>
+              <h1 className="text-2xl font-display font-bold text-[var(--color-meza-text)] hidden md:block">meza.</h1>
 
               {/* App Switcher */}
-              <div className="flex bg-gray-100 p-1 rounded-xl">
-                <button className="px-4 py-1.5 rounded-lg bg-white shadow-sm text-sm font-bold text-meza-text tap-scale">Cashier</button>
-                <button onClick={() => navigate('/table/Kiosk')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 tap-scale">Ordering</button>
-                <button onClick={() => navigate('/kds')} className="px-4 py-1.5 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700 tap-scale">KDS</button>
+              <div className="flex bg-[var(--color-meza-bg)] p-1 rounded-sm-sm">
+                <button className="px-4 py-1.5 rounded-sm-sm bg-[var(--color-meza-surface)]  text-sm font-bold text-[var(--color-meza-text)] tap-scale">Cashier</button>
+                <button onClick={() => navigate('/table/Kiosk')} className="px-4 py-1.5 rounded-sm-sm text-sm font-bold text-[var(--color-meza-muted)] hover:text-[var(--color-meza-text)] tap-scale">Ordering</button>
+                <button onClick={() => navigate('/kds')} className="px-4 py-1.5 rounded-sm-sm text-sm font-bold text-[var(--color-meza-muted)] hover:text-[var(--color-meza-text)] tap-scale">KDS</button>
               </div>
             </div>
 
@@ -757,27 +822,38 @@ export default function CashierMode() {
               {/* Network / Sync Status */}
               <div 
                 onClick={failedOrdersCount > 0 ? clearFailedOrders : undefined}
-                className={`flex items-center space-x-2 px-3 py-1 border rounded-lg ${failedOrdersCount > 0 ? 'bg-red-50 border-red-200 cursor-pointer hover:bg-red-100' : 'bg-gray-50 border-gray-200'}`}
+                className={`flex items-center space-x-2 px-3 py-1 border rounded-sm-sm ${failedOrdersCount > 0 ? 'bg-[var(--color-danger)]/10 border-[var(--color-danger)]/30 cursor-pointer hover:bg-[var(--color-danger)]/20' : 'bg-[var(--color-meza-bg)] border-[var(--color-meza-border)]'}`}
                 title={failedOrdersCount > 0 ? 'Click to clear failed syncs' : 'Network Status'}
               >
-                {isOnline ? <Wifi className={`w-4 h-4 ${failedOrdersCount > 0 ? 'text-red-500' : 'text-green-500'}`} /> : <WifiOff className="w-4 h-4 text-red-500" />}
-                <span className={`text-[10px] font-bold uppercase ${failedOrdersCount > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                {isOnline ? <Wifi className={`w-4 h-4 ${failedOrdersCount > 0 ? 'text-[var(--color-danger)]' : 'text-green-500'}`} /> : <WifiOff className="w-4 h-4 text-[var(--color-danger)]" />}
+                <span className={`text-[10px] font-bold uppercase ${failedOrdersCount > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-meza-muted)]'}`}>
                   {failedOrdersCount > 0 ? `${failedOrdersCount} Failed` : pendingOrdersCount > 0 ? `${pendingOrdersCount} Pending` : 'Synced'}
                 </span>
               </div>
 
-              <button onClick={() => setIsEndingShift(true)} className="flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 text-[11px] font-bold uppercase"><SquareTerminal className="w-3.5 h-3.5" /><span>Close Register</span></button>
-              <button onClick={() => setIsProfileOpen(true)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg cursor-pointer transition-colors"><UserCog className="w-5 h-5" /></button>
-              <button onClick={() => navigate('/login')} className="p-2 text-gray-400 hover:text-red-600 rounded-lg cursor-pointer transition-colors"><LogOut className="w-5 h-5" /></button>
+              {/* Printer Status (Placeholder) */}
+              <div 
+                className="flex items-center space-x-2 px-3 py-1 border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 rounded-sm-sm cursor-help"
+                title="Printer is online and connected"
+              >
+                <div className="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"></div>
+                <span className="text-[10px] font-bold uppercase text-[var(--color-success)]">
+                  Printer Ready
+                </span>
+              </div>
+
+              <button onClick={() => setIsEndingShift(true)} className="flex items-center space-x-1 px-3 py-1.5 rounded-sm-sm border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-danger)] text-[11px] font-bold uppercase"><SquareTerminal className="w-3.5 h-3.5" /><span>Close Register</span></button>
+              <button onClick={() => setIsProfileOpen(true)} className="p-2 text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)] rounded-sm-sm cursor-pointer transition-colors"><UserCog className="w-5 h-5" /></button>
+              <button onClick={() => navigate('/login')} className="p-2 text-[var(--color-meza-muted)] hover:text-[var(--color-danger)] rounded-sm-sm cursor-pointer transition-colors"><LogOut className="w-5 h-5" /></button>
             </div>
           </header>
 
           {/* Top Action Bar (Search + Categories) */}
-          <div className="bg-white border-b border-gray-100 p-4 flex flex-col sm:flex-row sm:items-center gap-4 shadow-sm z-10">
+          <div className="bg-[var(--color-meza-surface)] border-b border-[var(--color-meza-border)] p-4 flex flex-col sm:flex-row sm:items-center gap-4  z-10">
             {/* Search */}
             <div className="relative w-full sm:w-72 shrink-0">
-              <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input id="pos-search" type="text" placeholder="Search menu..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-base font-semibold outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 transition-all shadow-inner" />
+              <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-meza-muted)]" />
+              <input id="pos-search" type="text" placeholder="Search menu..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm-sm text-base font-semibold outline-none focus:border-[var(--color-meza-primary)] focus:ring-4 focus:ring-[var(--color-meza-primary)]/10 transition-all " />
             </div>
 
             {/* Categories (Horizontal Scroll) */}
@@ -786,7 +862,7 @@ export default function CashierMode() {
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 border-2 ${activeCategory === cat ? 'border-meza-primary bg-meza-primary/10 text-meza-primary shadow-sm' : 'border-transparent bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  className={`px-6 py-3 rounded-sm-sm text-sm font-bold uppercase tracking-wider whitespace-nowrap transition-all flex-shrink-0 border-2 ${activeCategory === cat ? 'border-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/10 text-[var(--color-meza-primary)] ' : 'border-transparent bg-[var(--color-meza-bg)] text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-border)]'}`}
                 >
                   {cat}
                 </button>
@@ -795,19 +871,19 @@ export default function CashierMode() {
           </div>
 
           {/* Menu Grid */}
-          <main className="flex-1 overflow-y-auto p-6 bg-[#f4f1eb]">
+          <main className="flex-1 overflow-y-auto p-6 bg-[var(--color-meza-bg)]">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {filteredMenu.map(item => {
                 const isSoldOut = !item.isAvailable || item.calculatedStock === 0;
                 return (
-                  <div key={item._id} onClick={(e) => handleItemClick(item, e)} className={`relative bg-white rounded-2xl border border-gray-100 shadow-sm transition-all cursor-pointer flex flex-col overflow-hidden active:scale-95 group min-h-[180px] ${isSoldOut ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-xl'}`}>
+                  <div key={item._id} onClick={(e) => handleItemClick(item, e)} className={`relative bg-[var(--color-meza-surface)] rounded-sm-sm border border-[var(--color-meza-border)]  transition-all cursor-pointer flex flex-col overflow-hidden active:scale-95 group min-h-[180px] ${isSoldOut ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:-translate-y-1 hover:'}`}>
 
                     {/* Image Area */}
-                    <div className="h-32 bg-gray-100 relative overflow-hidden shrink-0">
+                    <div className="h-32 bg-[var(--color-meza-bg)] relative overflow-hidden shrink-0">
                       {item.photoUrl ? (
                         <img src={item.photoUrl} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                        <div className="w-full h-full flex items-center justify-center text-[var(--color-meza-muted)]">
                           {item.category === 'Drinks' ? <Coffee className="w-10 h-10" /> : item.category === 'Food' ? <UtensilsCrossed className="w-10 h-10" /> : <Croissant className="w-10 h-10" />}
                         </div>
                       )}
@@ -815,11 +891,11 @@ export default function CashierMode() {
                       {/* Beautiful Stock Indicators */}
                       {isSoldOut ? (
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[2px]">
-                          <span className="bg-red-600 text-white px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest shadow-lg transform -rotate-6">Sold Out</span>
+                          <span className="bg-[var(--color-danger)] text-white px-3 py-1 rounded-sm-sm text-xs font-bold uppercase tracking-widest  transform -rotate-6">Sold Out</span>
                         </div>
                       ) : (
                         item.calculatedStock !== null && item.calculatedStock !== undefined && (
-                          <div className={`absolute top-3 right-3 text-[10px] font-black px-2 py-1 rounded-lg shadow-md backdrop-blur-md ${item.calculatedStock <= 5 ? 'bg-red-500/90 text-white' : 'bg-white/90 text-gray-700 border border-gray-200/50'}`}>
+                          <div className={`absolute top-3 right-3 text-[10px] font-bold px-2 py-1 rounded-sm-sm  backdrop-blur-md ${item.calculatedStock <= 5 ? 'bg-[var(--color-danger)]/100/90 text-white' : 'bg-[var(--color-meza-surface)]/90 text-[var(--color-meza-text)] border border-[var(--color-meza-border)]/50'}`}>
                             {item.calculatedStock} left
                           </div>
                         )
@@ -827,16 +903,16 @@ export default function CashierMode() {
                     </div>
 
                     {/* Text Area */}
-                    <div className="p-4 flex-1 flex flex-col justify-between bg-white z-10">
-                      <h3 className="font-black text-meza-text text-[15px] leading-snug line-clamp-2">{item.name}</h3>
-                      <span className="text-meza-primary font-black text-base mt-2">₱{item.price.toFixed(2)}</span>
+                    <div className="p-4 flex-1 flex flex-col justify-between bg-[var(--color-meza-surface)] z-10">
+                      <h3 className="font-bold text-[var(--color-meza-text)] text-[15px] font-display leading-snug line-clamp-2">{item.name}</h3>
+                      <span className="text-[var(--color-meza-primary)] font-bold text-base mt-2">₱{item.price.toFixed(2)}</span>
                     </div>
 
                     {/* Restock/86 Controls */}
                     {!isSoldOut && (
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }}
-                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-md bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-sm-md bg-[var(--color-meza-bg)] text-[var(--color-meza-muted)] hover:bg-[var(--color-danger)]/20 hover:text-[var(--color-danger)] transition-colors opacity-0 group-hover:opacity-100"
                         title="Mark as Sold Out"
                       >
                         86
@@ -845,7 +921,7 @@ export default function CashierMode() {
                     {isSoldOut && (
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleAvailability(item._id); }}
-                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-md bg-white text-green-600 hover:bg-green-50 shadow-sm transition-colors z-20"
+                        className="absolute bottom-3 right-3 text-[10px] uppercase font-bold px-2 py-1 rounded-sm-md bg-[var(--color-meza-surface)] text-[var(--color-success)] hover:bg-[var(--color-success)]/10  transition-colors z-20"
                       >
                         Restock
                       </button>
@@ -858,217 +934,216 @@ export default function CashierMode() {
         </div>
 
         {/* RIGHT: CART / KITCHEN TAB */}
-        <div className={`w-full md:w-80 lg:w-96 bg-white border-l border-gray-200 flex flex-col shadow-2xl z-20 transition-all duration-300 ${(isStartingShift || pinModal.isOpen || checkoutSuccessModal) ? 'blur-md pointer-events-none' : ''}`}>
+        <div className={`w-full md:w-80 lg:w-96 bg-[var(--color-meza-surface)] border-l border-[var(--color-meza-border)] flex flex-col  z-20 transition-all duration-300 ${(isStartingShift || pinModal.isOpen || checkoutSuccessModal) ? 'blur-md pointer-events-none' : ''}`}>
 
           {/* Panel Tabs */}
-          <div className="flex border-b border-gray-200 bg-gray-50">
+          <div className="flex border-b border-[var(--color-meza-border)] bg-[var(--color-meza-bg)]">
             <button
               onClick={() => setRightPanelTab('order')}
-              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'order' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'order' ? 'bg-[var(--color-meza-surface)] text-[var(--color-meza-text)] border-b-2 border-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)]'}`}
             >
               Order
             </button>
             <button
               onClick={() => setRightPanelTab('unpaid')}
-              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'unpaid' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'unpaid' ? 'bg-[var(--color-meza-surface)] text-[var(--color-meza-text)] border-b-2 border-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)]'}`}
             >
-              To Pay {unpaidOrders.length > 0 && <span className="ml-1.5 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{unpaidOrders.length}</span>}
+              To Pay {unpaidOrders.length > 0 && <span className="ml-1.5 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-sm-full">{unpaidOrders.length}</span>}
             </button>
             <button
               onClick={() => setRightPanelTab('kitchen')}
-              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'kitchen' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'kitchen' ? 'bg-[var(--color-meza-surface)] text-[var(--color-meza-text)] border-b-2 border-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)]'}`}
             >
-              Kitchen {kitchenOrders.length > 0 && <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{kitchenOrders.length}</span>}
+              Kitchen {kitchenOrders.length > 0 && <span className="ml-1.5 bg-[var(--color-danger)]/100 text-white text-[10px] px-1.5 py-0.5 rounded-sm-full">{kitchenOrders.length}</span>}
             </button>
             <button
               onClick={() => setRightPanelTab('history')}
-              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'history' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'history' ? 'bg-[var(--color-meza-surface)] text-[var(--color-meza-text)] border-b-2 border-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)]'}`}
             >
               History
             </button>
             <button
               onClick={() => setRightPanelTab('held')}
-              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'held' ? 'bg-white text-meza-text border-b-2 border-meza-primary' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex-1 py-3 font-bold text-xs flex items-center justify-center uppercase tracking-wider transition-colors ${rightPanelTab === 'held' ? 'bg-[var(--color-meza-surface)] text-[var(--color-meza-text)] border-b-2 border-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)]'}`}
             >
-              Held {heldOrders.length > 0 && <span className="ml-1.5 bg-gray-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{heldOrders.length}</span>}
+              Held {heldOrders.length > 0 && <span className="ml-1.5 bg-[var(--color-meza-bg)]0 text-white text-[10px] px-1.5 py-0.5 rounded-sm-full">{heldOrders.length}</span>}
             </button>
           </div>
 
           {rightPanelTab === 'order' ? (
             <>
-              <div className="h-10 flex items-center px-6 border-b border-gray-100 bg-[#fcf9f5] justify-between">
-                <span className={`font-bold text-xs uppercase tracking-widest transition-colors ${cartPulse ? 'text-meza-primary' : 'text-gray-400'}`}>Cart Items</span>
+              <div className="h-10 flex items-center px-6 border-b border-[var(--color-meza-border)] bg-[var(--color-meza-surface)] justify-between receipt-dashed">
+                <span className={`font-mono text-xs uppercase tracking-widest transition-colors ${cartPulse ? 'text-[var(--color-meza-primary)]' : 'text-[var(--color-meza-muted)]'}`}>Cart Items</span>
                 <div className="flex space-x-2">
-                  <button onClick={holdCurrentOrder} disabled={cart.length === 0} className="text-[10px] uppercase font-bold text-gray-500 border border-gray-200 hover:bg-gray-100 bg-white px-2 py-0.5 rounded cursor-pointer flex items-center space-x-1 disabled:opacity-50"><Pause className="w-3 h-3" /><span>Hold</span></button>
-                  <button onClick={() => requestManagerPin('void')} disabled={cart.length === 0} className="text-[10px] uppercase font-bold text-red-500 border border-red-200 bg-red-50 px-2 py-0.5 rounded cursor-pointer disabled:opacity-50 flex items-center space-x-1"><Trash2 className="w-3 h-3" /><span>Void</span></button>
+                  <button onClick={holdCurrentOrder} disabled={cart.length === 0} className="text-[10px] uppercase font-bold text-[var(--color-meza-muted)] border border-[var(--color-meza-border)] hover:bg-[var(--color-meza-bg)] bg-[var(--color-meza-surface)] px-2 py-0.5 rounded-sm cursor-pointer flex items-center space-x-1 disabled:opacity-50"><Pause className="w-3 h-3" /><span>Hold</span></button>
+                  <button onClick={() => requestManagerPin('void')} disabled={cart.length === 0} className="text-[10px] uppercase font-bold text-[var(--color-danger)] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-2 py-0.5 rounded-sm cursor-pointer disabled:opacity-50 flex items-center space-x-1"><Trash2 className="w-3 h-3" /><span>Void</span></button>
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {cart.map(item => (
-                  <div key={item.cartItemId} className="bg-white border border-gray-100 rounded-lg p-3 shadow-sm group">
+                  <div key={item.cartItemId} className="bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] p-3 group">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex-1 pr-2">
-                        <h4 className="font-bold text-meza-text text-sm leading-tight line-clamp-2">{item.name}</h4>
+                        <h4 className="font-bold text-[var(--color-meza-text)] text-sm leading-tight line-clamp-2">{item.name}</h4>
                         {item.modifiers && item.modifiers.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {item.modifiers.map((m, mIdx) => (
-                              <span key={mIdx} className="bg-meza-primary/10 text-meza-primary border border-meza-primary/20 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none uppercase tracking-wider">
+                              <span key={mIdx} className="bg-[var(--color-meza-primary)]/10 text-[var(--color-meza-primary)] border border-[var(--color-meza-primary)]/20 px-1.5 py-0.5 rounded-sm text-[10px] font-bold leading-none uppercase tracking-wider">
                                 + {m.name}
                               </span>
                             ))}
                           </div>
                         )}
-                        <p className="text-xs text-gray-500 font-bold mt-1.5">₱{((item.price) + (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0)).toFixed(2)}</p>
+                        <p className="text-xs text-[var(--color-meza-muted)] font-mono font-bold mt-1.5">₱{((item.price) + (item.modifiers || []).reduce((s, m) => s + (m.price || 0), 0)).toFixed(2)}</p>
                       </div>
-                      <div className="flex items-center space-x-2 bg-gray-50 rounded-lg p-1 border border-gray-100 shrink-0">
-                        <button onClick={() => updateCartItem(item.cartItemId, -1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">-</button>
-                        <span className="w-5 text-center font-bold text-sm text-meza-text">{item.quantity}</span>
-                        <button onClick={() => updateCartItem(item.cartItemId, 1)} className="w-8 h-8 flex items-center justify-center rounded bg-white shadow-sm border border-gray-200 active:scale-95 cursor-pointer text-meza-text font-bold text-lg">+</button>
+                      <div className="flex items-center space-x-2 bg-[var(--color-meza-bg)] p-1 border border-[var(--color-meza-border)] shrink-0">
+                        <button onClick={() => updateCartItem(item.cartItemId, -1)} className="w-8 h-8 flex items-center justify-center bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] active:scale-95 cursor-pointer text-[var(--color-meza-text)] font-bold text-lg">-</button>
+                        <span className="w-5 text-center font-mono font-bold text-sm text-[var(--color-meza-text)]">{item.quantity}</span>
+                        <button onClick={() => updateCartItem(item.cartItemId, 1)} className="w-8 h-8 flex items-center justify-center bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] active:scale-95 cursor-pointer text-[var(--color-meza-text)] font-bold text-lg">+</button>
                       </div>
-                      <button onClick={() => removeFromCart(item.cartItemId)} className="ml-3 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                      <button onClick={() => removeFromCart(item.cartItemId)} className="ml-3 p-1.5 text-[var(--color-meza-muted)] hover:text-[var(--color-danger)] opacity-0 group-hover:opacity-100 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                     </div>
-                    <input type="text" placeholder="Add note..." value={item.note || ''} onChange={e => updateCartItem(item.cartItemId, 0, e.target.value)} className="w-full text-[10px] bg-gray-50 border border-gray-100 rounded px-2 py-1 outline-none focus:border-meza-primary text-gray-600 italic" />
+                    <input type="text" placeholder="Add note..." value={item.note || ''} onChange={e => updateCartItem(item.cartItemId, 0, e.target.value)} className="w-full text-[10px] bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm px-2 py-1 outline-none focus:border-[var(--color-meza-primary)] text-[var(--color-meza-muted)] italic" />
                   </div>
                 ))}
               </div>
 
-              <div className="border-t border-gray-200 bg-white p-5 space-y-3">
-
+              <div className="border-t border-[var(--color-meza-border)] bg-[var(--color-meza-surface)] p-5 space-y-3">
                 {/* Quick Discounts */}
                 <div className="flex space-x-2 mb-2">
-                  <button onClick={() => requestManagerPin('discount', subtotal * 0.20)} disabled={cart.length === 0} className="flex-1 py-1.5 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold uppercase rounded flex items-center justify-center space-x-1 disabled:opacity-50">
+                  <button onClick={() => requestManagerPin('discount', subtotal * 0.20)} disabled={cart.length === 0} className="flex-1 py-1.5 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-bold uppercase rounded-sm flex items-center justify-center space-x-1 disabled:opacity-50">
                     <Percent className="w-3 h-3" /><span>Senior 20%</span>
                   </button>
-                  <button onClick={() => requestManagerPin('discount', subtotal * 0.10)} disabled={cart.length === 0} className="flex-1 py-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold uppercase rounded flex items-center justify-center space-x-1 disabled:opacity-50">
+                  <button onClick={() => requestManagerPin('discount', subtotal * 0.10)} disabled={cart.length === 0} className="flex-1 py-1.5 border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold uppercase rounded-sm flex items-center justify-center space-x-1 disabled:opacity-50">
                     <Percent className="w-3 h-3" /><span>Staff 10%</span>
                   </button>
                 </div>
 
-                <div className="flex justify-between text-sm font-medium text-gray-500"><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
-                {discountAmount > 0 && <div className="flex justify-between text-sm font-bold text-purple-600"><span>Discount</span><span>-₱{discountAmount.toFixed(2)}</span></div>}
-                <div className="flex justify-between items-end pt-1 border-t border-dashed border-gray-200 mt-2">
-                  <span className="text-gray-500 font-bold uppercase text-xs">Total</span>
-                  <span className="text-3xl font-black text-meza-text tracking-tight">₱{total.toFixed(2)}</span>
+                <div className="flex justify-between text-sm font-medium text-[var(--color-meza-muted)] font-mono"><span>Subtotal</span><span>₱{subtotal.toFixed(2)}</span></div>
+                {discountAmount > 0 && <div className="flex justify-between text-sm font-bold text-purple-600 font-mono"><span>Discount</span><span>-₱{discountAmount.toFixed(2)}</span></div>}
+                <div className="flex justify-between items-end pt-1 border-t border-dashed border-[var(--color-meza-border)] mt-2">
+                  <span className="text-[var(--color-meza-muted)] font-bold uppercase text-xs">Total</span>
+                  <span className="text-3xl font-mono font-bold text-[var(--color-meza-text)] tracking-tight">₱{total.toFixed(2)}</span>
                 </div>
 
-                <button onClick={() => setIsCheckingOut(true)} disabled={cart.length === 0} className="w-full mt-4 bg-meza-primary hover:bg-meza-primary-hover text-white py-4 rounded-xl font-bold tracking-widest uppercase text-sm shadow-md active:scale-95 transition-all disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2 cursor-pointer">
+                <button onClick={() => setIsCheckingOut(true)} disabled={cart.length === 0} className="w-full mt-4 bg-[var(--color-meza-primary)] hover:bg-[var(--color-meza-primary-hover)] text-[var(--color-meza-surface)] py-4 font-bold tracking-widest uppercase text-sm active:scale-95 transition-all disabled:opacity-50 disabled:transform-none flex items-center justify-center space-x-2 cursor-pointer border border-[var(--color-meza-text)]">
                   <span>Pay ₱{total.toFixed(2)}</span><span>→</span>
                 </button>
               </div>
             </>
           ) : rightPanelTab === 'unpaid' ? (
-            <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto bg-[var(--color-meza-bg)] p-4 space-y-4">
               {unpaidOrders.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No unpaid table orders</div>
+                <div className="h-full flex items-center justify-center text-[var(--color-meza-muted)] font-bold text-sm">No unpaid table orders</div>
               ) : (
                 unpaidOrders.map(o => (
-                  <div key={o._id} className="bg-white border-l-4 border-orange-500 rounded-xl shadow-sm p-4">
+                  <div key={o._id} className="bg-[var(--color-meza-surface)] border-l-4 border-orange-500 rounded-sm-sm  p-4">
                     <div className="flex justify-between items-center mb-3">
                       <div>
-                        <span className="font-black text-gray-800 text-lg mr-2">#{o._id.slice(-4).toUpperCase()}</span>
-                        {o.tableNumber && <span className="bg-meza-text text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Table {o.tableNumber}</span>}
+                        <span className="font-bold text-[var(--color-meza-text)] text-lg mr-2">#{o._id.slice(-4).toUpperCase()}</span>
+                        {o.tableNumber && <span className="bg-meza-text text-white px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider">Table {o.tableNumber}</span>}
                       </div>
-                      <span className="font-black text-meza-primary text-lg">₱{o.total.toFixed(2)}</span>
+                      <span className="font-bold text-[var(--color-meza-primary)] text-lg">₱{o.total.toFixed(2)}</span>
                     </div>
                     <ul className="space-y-1 mb-4">
                       {o.items.map((i, idx) => (
-                        <li key={idx} className="flex justify-between text-xs text-gray-500 font-medium">
+                        <li key={idx} className="flex justify-between text-xs text-[var(--color-meza-muted)] font-medium">
                           <span>{i.quantity}x {i.nameAtSale}</span>
                         </li>
                       ))}
                     </ul>
                     <div className="flex space-x-2">
-                      <button onClick={() => markAsPaid(o._id, 'cash')} className="flex-1 py-2 bg-green-50 text-green-700 border border-green-200 rounded font-bold text-xs hover:bg-green-100">Pay Cash</button>
-                      <button onClick={() => markAsPaid(o._id, 'online')} className="flex-1 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded font-bold text-xs hover:bg-purple-100">Pay Online</button>
+                      <button onClick={() => markAsPaid(o._id, 'cash')} className="flex-1 py-2 bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/30 rounded-sm font-bold text-xs hover:bg-[var(--color-success)]/20">Pay Cash</button>
+                      <button onClick={() => markAsPaid(o._id, 'online')} className="flex-1 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-sm font-bold text-xs hover:bg-purple-100">Pay Online</button>
                     </div>
                   </div>
                 ))
               )}
             </div>
           ) : rightPanelTab === 'kitchen' ? (
-            <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto bg-[var(--color-meza-bg)] p-4 space-y-4">
               {kitchenOrders.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No active kitchen orders</div>
+                <div className="h-full flex items-center justify-center text-[var(--color-meza-muted)] font-bold text-sm">No active kitchen orders</div>
               ) : (
                 kitchenOrders.map(o => (
-                  <div key={o._id} className={`bg-white border-l-4 rounded-xl shadow-sm p-4 ${o.fulfillmentStatus === 'pending' ? 'border-orange-500' : o.fulfillmentStatus === 'preparing' ? 'border-blue-500' : 'border-green-500'}`}>
+                  <div key={o._id} className={`bg-[var(--color-meza-surface)] border-l-4 rounded-sm-sm  p-4 ${o.fulfillmentStatus === 'pending' ? 'border-orange-500' : o.fulfillmentStatus === 'preparing' ? 'border-blue-500' : 'border-green-500'}`}>
                     <div className="flex justify-between items-center mb-3">
                       <div>
-                        <span className="font-black text-gray-800 text-lg mr-2">#{o._id.slice(-4).toUpperCase()}</span>
-                        {o.tableNumber && <span className="bg-meza-text text-white px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Table {o.tableNumber}</span>}
+                        <span className="font-bold text-[var(--color-meza-text)] text-lg mr-2">#{o._id.slice(-4).toUpperCase()}</span>
+                        {o.tableNumber && <span className="bg-meza-text text-white px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider">Table {o.tableNumber}</span>}
                       </div>
-                      <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${o.fulfillmentStatus === 'pending' ? 'bg-orange-100 text-orange-700' : o.fulfillmentStatus === 'preparing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                      <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-sm ${o.fulfillmentStatus === 'pending' ? 'bg-orange-100 text-orange-700' : o.fulfillmentStatus === 'preparing' ? 'bg-blue-100 text-blue-700' : 'bg-[var(--color-success)]/20 text-[var(--color-success)]'}`}>
                         {o.fulfillmentStatus}
                       </span>
                     </div>
                     <ul className="space-y-2 mb-4">
                       {o.items.map((i, idx) => (
                         <li key={idx} className="flex justify-between text-sm">
-                          <span className="font-bold text-gray-700">{i.quantity}x {i.nameAtSale}</span>
-                          {i.note && <span className="text-xs text-red-500 italic block mt-0.5">Note: {i.note}</span>}
+                          <span className="font-bold text-[var(--color-meza-text)]">{i.quantity}x {i.nameAtSale}</span>
+                          {i.note && <span className="text-xs text-[var(--color-danger)] italic block mt-0.5">Note: {i.note}</span>}
                         </li>
                       ))}
                     </ul>
-                    {o.fulfillmentStatus === 'pending' && <button onClick={() => updateKitchenStatus(o._id, 'preparing')} className="w-full py-2 bg-blue-600 text-white rounded font-bold text-sm hover:bg-blue-700">Start Preparing</button>}
-                    {o.fulfillmentStatus === 'preparing' && <button onClick={() => updateKitchenStatus(o._id, 'ready')} className="w-full py-2 bg-green-600 text-white rounded font-bold text-sm hover:bg-green-700">Mark Ready</button>}
-                    {o.fulfillmentStatus === 'ready' && <button onClick={() => updateKitchenStatus(o._id, 'served')} className="w-full py-2 bg-gray-800 text-white rounded font-bold text-sm hover:bg-gray-900">Mark Served</button>}
+                    {o.fulfillmentStatus === 'pending' && <button onClick={() => updateKitchenStatus(o._id, 'preparing')} className="w-full py-2 bg-blue-600 text-white rounded-sm font-bold text-sm hover:bg-blue-700">Start Preparing</button>}
+                    {o.fulfillmentStatus === 'preparing' && <button onClick={() => updateKitchenStatus(o._id, 'ready')} className="w-full py-2 bg-[var(--color-success)] text-white rounded-sm font-bold text-sm hover:bg-[var(--color-success)]">Mark Ready</button>}
+                    {o.fulfillmentStatus === 'ready' && <button onClick={() => updateKitchenStatus(o._id, 'served')} className="w-full py-2 bg-gray-800 text-white rounded-sm font-bold text-sm hover:bg-gray-900">Mark Served</button>}
                   </div>
                 ))
               )}
             </div>
           ) : rightPanelTab === 'history' ? (
-            <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto bg-[var(--color-meza-bg)] p-4 space-y-4">
               <div className="flex justify-between items-center mb-2 px-1">
-                <h3 className="font-bold text-meza-text text-sm uppercase tracking-wider">Shift Transactions</h3>
-                <span className="text-xs font-bold text-meza-primary bg-meza-primary/10 px-2 py-1 rounded">₱{shiftAnalytics?.totalSales?.toFixed(2) || '0.00'}</span>
+                <h3 className="font-bold text-[var(--color-meza-text)] text-sm uppercase tracking-wider">Shift Transactions</h3>
+                <span className="text-xs font-bold text-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/10 px-2 py-1 rounded-sm">₱{shiftAnalytics?.totalSales?.toFixed(2) || '0.00'}</span>
               </div>
               {!shiftAnalytics || !shiftAnalytics.orders || shiftAnalytics.orders.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No transactions yet</div>
+                <div className="h-full flex items-center justify-center text-[var(--color-meza-muted)] font-bold text-sm">No transactions yet</div>
               ) : (
                 shiftAnalytics.orders.map(o => (
-                  <div key={o._id} className="bg-white border border-gray-100 rounded-xl shadow-sm p-4">
+                  <div key={o._id} className="bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] rounded-sm-sm  p-4">
                     <div className="flex justify-between items-center mb-2">
                       <div className="flex flex-col">
-                        <span className="font-black text-gray-800 text-sm">#{o._id.slice(-4).toUpperCase()}</span>
-                        {o.customerName && <span className="text-xs font-bold text-gray-500">{o.customerName}</span>}
+                        <span className="font-bold text-[var(--color-meza-text)] text-sm">#{o._id.slice(-4).toUpperCase()}</span>
+                        {o.customerName && <span className="text-xs font-bold text-[var(--color-meza-muted)]">{o.customerName}</span>}
                       </div>
-                      <span className="text-xs font-bold text-gray-400">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-xs font-bold text-[var(--color-meza-muted)]">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <ul className="space-y-1 mb-3 border-b border-gray-100 pb-3">
+                    <ul className="space-y-1 mb-3 border-b border-[var(--color-meza-border)] pb-3">
                       {o.items.map((i, idx) => (
-                        <li key={idx} className="flex justify-between text-xs text-gray-600">
+                        <li key={idx} className="flex justify-between text-xs text-[var(--color-meza-muted)]">
                           <span>{i.quantity}x {i.nameAtSale}</span>
                         </li>
                       ))}
                     </ul>
                     <div className="flex justify-between items-center">
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${o.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm ${o.paymentMethod === 'cash' ? 'bg-[var(--color-success)]/20 text-[var(--color-success)]' : 'bg-blue-100 text-blue-700'}`}>
                         {o.paymentMethod}
                       </span>
-                      <span className="font-black text-meza-text text-sm">₱{o.total.toFixed(2)}</span>
+                      <span className="font-bold text-[var(--color-meza-text)] text-sm">₱{o.total.toFixed(2)}</span>
                     </div>
                   </div>
                 ))
               )}
             </div>
           ) : rightPanelTab === 'held' ? (
-            <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto bg-[var(--color-meza-bg)] p-4 space-y-4">
               {heldOrders.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-400 font-bold text-sm">No held orders</div>
+                <div className="h-full flex items-center justify-center text-[var(--color-meza-muted)] font-bold text-sm">No held orders</div>
               ) : (
                 heldOrders.map(h => (
-                  <div key={h.id} className="bg-white border-l-4 border-gray-500 rounded-xl shadow-sm p-4">
+                  <div key={h.id} className="bg-[var(--color-meza-surface)] border-l-4 border-gray-500 rounded-sm-sm  p-4">
                     <div className="flex justify-between items-center mb-3">
-                      <span className="font-black text-gray-800 text-sm">Held at {h.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      <span className="font-black text-meza-primary text-sm">₱{h.cart.reduce((s, i) => s + (i.price * i.quantity), 0).toFixed(2)}</span>
+                      <span className="font-bold text-[var(--color-meza-text)] text-sm">Held at {h.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="font-bold text-[var(--color-meza-primary)] text-sm">₱{h.cart.reduce((s, i) => s + (i.price * i.quantity), 0).toFixed(2)}</span>
                     </div>
-                    <ul className="space-y-1 mb-4 text-xs text-gray-500 font-medium">
+                    <ul className="space-y-1 mb-4 text-xs text-[var(--color-meza-muted)] font-medium">
                       {h.cart.map((i, idx) => (
                         <li key={idx} className="flex justify-between"><span>{i.quantity}x {i.name}</span></li>
                       ))}
                     </ul>
-                    <button onClick={() => resumeHeldOrder(h)} className="w-full py-2 bg-meza-text text-white rounded font-bold text-xs hover:bg-black">Resume Order</button>
+                    <button onClick={() => resumeHeldOrder(h)} className="w-full py-2 bg-meza-text text-white rounded-sm font-bold text-xs hover:bg-black">Resume Order</button>
                   </div>
                 ))
               )}
@@ -1079,27 +1154,27 @@ export default function CashierMode() {
         {/* Checkout Modal */}
         {isCheckingOut && (
           <div className="fixed inset-0 bg-meza-text/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100">
-              <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-[#fcf9f5]">
-                <h3 className="font-bold text-meza-text uppercase tracking-wider text-sm">Complete Payment</h3>
-                <button onClick={() => setIsCheckingOut(false)} className="p-1 text-gray-400 hover:text-gray-600 rounded cursor-pointer"><X className="w-5 h-5" /></button>
+            <div className="bg-[var(--color-meza-surface)] rounded-sm-sm w-full max-w-md  overflow-hidden border border-[var(--color-meza-border)]">
+              <div className="flex justify-between items-center p-5 border-b border-[var(--color-meza-border)] bg-[var(--color-meza-bg)]">
+                <h3 className="font-bold text-[var(--color-meza-text)] uppercase tracking-wider text-sm">Complete Payment</h3>
+                <button onClick={() => setIsCheckingOut(false)} className="p-1 text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)] rounded-sm cursor-pointer"><X className="w-5 h-5" /></button>
               </div>
 
               <div className="p-6 space-y-4">
                 <div className="text-center mb-6">
-                  <h2 className="text-5xl font-black text-meza-text tracking-tight mt-1">₱{total.toFixed(2)}</h2>
+                  <h2 className="text-5xl font-mono font-bold text-[var(--color-meza-text)] tracking-tight mt-1">₱{total.toFixed(2)}</h2>
                 </div>
 
-                <div className="mb-4 bg-orange-50 p-3 rounded-xl border border-orange-100">
-                  <label className="text-xs font-black text-orange-800 uppercase ml-1 mb-1.5 block tracking-wider">Customer Name <span className="text-red-500">*</span></label>
-                  <input type="text" placeholder="e.g. John Doe" value={customerName} onChange={e => setCustomerName(e.target.value)} className={`w-full text-lg bg-white border-2 rounded-xl px-4 py-3 outline-none focus:border-meza-primary focus:ring-4 focus:ring-meza-primary/10 font-bold transition-all ${!customerName.trim() ? 'border-orange-300 shadow-inner' : 'border-gray-200'}`} />
+                <div className="mb-4 bg-orange-50 p-3 rounded-sm-sm border border-orange-100">
+                  <label className="text-xs font-bold text-orange-800 uppercase ml-1 mb-1.5 block tracking-wider">Customer Name <span className="text-[var(--color-danger)]">*</span></label>
+                  <input type="text" placeholder="e.g. John Doe" value={customerName} onChange={e => setCustomerName(e.target.value)} className={`w-full text-lg bg-[var(--color-meza-surface)] font-mono border-2 rounded-sm-sm px-4 py-3 outline-none focus:border-[var(--color-meza-primary)] focus:ring-4 focus:ring-[var(--color-meza-primary)]/10 font-bold transition-all ${!customerName.trim() ? 'border-orange-300 ' : 'border-[var(--color-meza-border)]'}`} />
                   {!customerName.trim() && <p className="text-[10px] text-orange-600 font-bold mt-1.5 ml-1">Required to identify the order</p>}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-4">
-                  <button onClick={() => setPaymentMethod('cash')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'cash' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><Banknote className="w-5 h-5" /><span className="font-bold text-xs">Cash</span></button>
-                  <button onClick={() => setPaymentMethod('card')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'card' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><CreditCard className="w-5 h-5" /><span className="font-bold text-xs">Digital</span></button>
-                  <button onClick={() => setPaymentMethod('split')} className={`py-3 rounded-xl flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'split' ? 'border-meza-primary bg-meza-primary/5 text-meza-primary' : 'border-gray-100 text-gray-500'}`}><span className="font-bold text-xs">Split</span></button>
+                  <button onClick={() => setPaymentMethod('cash')} className={`py-3 rounded-sm-sm flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'cash' ? 'border-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/5 text-[var(--color-meza-primary)]' : 'border-[var(--color-meza-border)] text-[var(--color-meza-muted)]'}`}><Banknote className="w-5 h-5" /><span className="font-bold text-xs">Cash</span></button>
+                  <button onClick={() => setPaymentMethod('card')} className={`py-3 rounded-sm-sm flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'card' ? 'border-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/5 text-[var(--color-meza-primary)]' : 'border-[var(--color-meza-border)] text-[var(--color-meza-muted)]'}`}><CreditCard className="w-5 h-5" /><span className="font-bold text-xs">Digital</span></button>
+                  <button onClick={() => setPaymentMethod('split')} className={`py-3 rounded-sm-sm flex flex-col items-center justify-center space-y-1 border-2 transition-all cursor-pointer ${paymentMethod === 'split' ? 'border-[var(--color-meza-primary)] bg-[var(--color-meza-primary)]/5 text-[var(--color-meza-primary)]' : 'border-[var(--color-meza-border)] text-[var(--color-meza-muted)]'}`}><span className="font-bold text-xs">Split</span></button>
                 </div>
 
                 {paymentMethod === 'cash' && (() => {
@@ -1109,32 +1184,32 @@ export default function CashierMode() {
                   const options = Array.from(new Set([nearest100, nearest500, nearest1000])).filter(v => v > total);
 
                   return (
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
+                    <div className="bg-[var(--color-meza-bg)] p-4 rounded-sm-sm border border-[var(--color-meza-border)] mb-6">
                       <div className="flex justify-between items-center mb-2">
-                        <label className="text-xs font-bold text-gray-500 uppercase">Cash Tendered</label>
+                        <label className="text-xs font-bold text-[var(--color-meza-muted)] uppercase">Cash Tendered</label>
                         <div className="flex space-x-1">
-                          <button onClick={() => setCashTendered(total.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">Exact</button>
+                          <button onClick={() => setCashTendered(total.toString())} className="px-2 py-1 bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] text-[10px] font-bold text-[var(--color-meza-muted)] rounded-sm  hover:bg-[var(--color-meza-bg)]">Exact</button>
                           {options.map(opt => (
-                            <button key={opt} onClick={() => setCashTendered(opt.toString())} className="px-2 py-1 bg-white border border-gray-200 text-[10px] font-bold text-gray-600 rounded shadow-sm hover:bg-gray-100">₱{opt}</button>
+                            <button key={opt} onClick={() => setCashTendered(opt.toString())} className="px-2 py-1 bg-[var(--color-meza-surface)] border border-[var(--color-meza-border)] text-[10px] font-bold text-[var(--color-meza-muted)] rounded-sm  hover:bg-[var(--color-meza-bg)]">₱{opt}</button>
                           ))}
                         </div>
                       </div>
-                      <input autoFocus type="number" step="0.01" value={cashTendered} onChange={e => setCashTendered(e.target.value)} className="w-full mt-1 text-2xl font-black text-meza-text bg-transparent outline-none border-b-2 border-gray-200 focus:border-meza-primary py-1" placeholder="0.00" />
+                      <input autoFocus type="number" step="0.01" value={cashTendered} onChange={e => setCashTendered(e.target.value)} className="w-full mt-1 text-2xl font-bold text-[var(--color-meza-text)] bg-transparent outline-none border-b-2 border-[var(--color-meza-border)] focus:border-[var(--color-meza-primary)] py-1" placeholder="0.00" />
                       <div className="flex justify-between mt-3 text-sm font-bold">
-                        <span className="text-gray-500">Change Due:</span>
-                        <span className={changeDue > 0 ? 'text-green-600' : 'text-gray-400'}>₱{changeDue.toFixed(2)}</span>
+                        <span className="text-[var(--color-meza-muted)]">Change Due:</span>
+                        <span className={changeDue > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-meza-muted)]'}>₱{changeDue.toFixed(2)}</span>
                       </div>
                     </div>
                   );
                 })()}
 
                 {paymentMethod === 'split' && (
-                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6 space-y-3">
+                  <div className="bg-[var(--color-meza-bg)] p-4 rounded-sm-sm border border-[var(--color-meza-border)] mb-6 space-y-3">
                     {['cash', 'gcash', 'card'].map(method => {
                       const currentAmt = splitPayments.find(p => p.method === method)?.amount || '';
                       return (
-                        <div key={method} className="flex justify-between items-center text-sm border-b border-gray-200 pb-2 last:border-0 last:pb-0">
-                          <span className="font-bold text-gray-600 capitalize">{method}</span>
+                        <div key={method} className="flex justify-between items-center text-sm border-b border-[var(--color-meza-border)] pb-2 last:border-0 last:pb-0">
+                          <span className="font-bold text-[var(--color-meza-muted)] capitalize">{method}</span>
                           <input
                             type="number"
                             placeholder="0.00"
@@ -1146,14 +1221,14 @@ export default function CashierMode() {
                                 return isNaN(val) ? filtered : [...filtered, { method, amount: val }];
                               });
                             }}
-                            className="w-24 text-right font-bold text-lg bg-transparent outline-none focus:text-meza-primary"
+                            className="w-24 text-right font-bold text-lg bg-transparent outline-none focus:text-[var(--color-meza-primary)]"
                           />
                         </div>
                       );
                     })}
-                    <div className="flex justify-between mt-3 text-sm font-bold border-t border-dashed border-gray-300 pt-3">
-                      <span className="text-gray-500">Total Tendered:</span>
-                      <span className={splitPayments.reduce((s, p) => s + (p.amount || 0), 0) >= total ? 'text-green-600' : 'text-red-500'}>
+                    <div className="flex justify-between mt-3 text-sm font-bold border-t border-dashed border-[var(--color-meza-border)] pt-3">
+                      <span className="text-[var(--color-meza-muted)]">Total Tendered:</span>
+                      <span className={splitPayments.reduce((s, p) => s + (p.amount || 0), 0) >= total ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
                         ₱{splitPayments.reduce((s, p) => s + (p.amount || 0), 0).toFixed(2)}
                       </span>
                     </div>
@@ -1163,7 +1238,7 @@ export default function CashierMode() {
                 <button
                   onClick={processCheckout}
                   disabled={!customerName.trim() || (paymentMethod === 'cash' && (parseFloat(cashTendered || 0) < total)) || (paymentMethod === 'split' && splitPayments.reduce((s, p) => s + (p.amount || 0), 0) < total)}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold uppercase tracking-wider text-sm shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer"
+                  className="w-full bg-[var(--color-success)] hover:bg-[var(--color-success)] text-white py-4 rounded-sm-sm font-bold uppercase tracking-wider text-sm  transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 cursor-pointer"
                 >
                   <Printer className="w-5 h-5" />
                   <span>Confirm & Print</span>

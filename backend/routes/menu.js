@@ -169,14 +169,100 @@ router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(menu
   }
 });
 
+// GET /api/menu/:id/recipe-costing
+// Get costing details for a menu item
+router.get('/:id/recipe-costing', authenticate, authorize('owner', 'manager'), async (req, res) => {
+  try {
+    const MenuItem = require('../models/MenuItem');
+    const Recipe = require('../models/Recipe');
+    const Ingredient = require('../models/Ingredient');
+
+    const item = await MenuItem.findById(req.params.id);
+    if (!item) return res.status(404).send('Not found');
+
+    let targetSize = req.query.size;
+    if (!targetSize) {
+      targetSize = (item.sizes && item.sizes.length > 0) ? item.sizes[0].name : 'Regular';
+    }
+
+    const recipe = await Recipe.findOne({ menuItemId: item._id, size: targetSize }).populate('ingredients.ingredientId');
+    
+    let cogs = 0;
+    const ingredientsBreakdown = [];
+
+    // Helper for unit conversion
+    const convertToGramsOrMl = (val, unit) => {
+      const u = unit.toLowerCase();
+      if (['kg', 'l', 'liter', 'liters'].includes(u)) return val * 1000;
+      if (['g', 'ml', 'pcs', 'each'].includes(u)) return val;
+      if (['oz', 'ounce', 'ounces'].includes(u)) return val * 28.3495;
+      if (['lb', 'lbs', 'pound', 'pounds'].includes(u)) return val * 453.592;
+      return val; // Fallback or assume 1:1 if unknown, though ideally we'd throw
+    };
+
+    if (recipe && recipe.ingredients) {
+      for (const ing of recipe.ingredients) {
+        if (!ing.ingredientId) continue;
+        const rawItem = ing.ingredientId;
+        
+        const rawCost = rawItem.movingAverageCost > 0 ? rawItem.movingAverageCost : rawItem.unitCost;
+        
+        const rawUnit = (rawItem.purchaseUnit || '').toLowerCase();
+        const recipeUnit = (ing.unit || '').toLowerCase();
+        
+        // Calculate cost per base unit (g or ml)
+        const rawBaseQty = convertToGramsOrMl(1, rawUnit); 
+        const costPerBaseUnit = rawCost / rawBaseQty;
+        
+        // Calculate total base units needed for recipe
+        const recipeBaseQty = convertToGramsOrMl(ing.quantity, recipeUnit);
+        
+        // Check for completely incompatible units (like weight to volume) as a sanity check if needed,
+        // but for now we apply the standard formula.
+        const costForQty = costPerBaseUnit * recipeBaseQty;
+
+        cogs += costForQty;
+        ingredientsBreakdown.push({
+          name: rawItem.name,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          cost: costForQty
+        });
+      }
+    }
+
+    // Find the price for the specific size
+    let price = item.price;
+    if (item.sizes && item.sizes.length > 0) {
+      const sizeObj = item.sizes.find(s => s.name === targetSize);
+      if (sizeObj) price = sizeObj.price;
+    }
+    const marginPercent = price > 0 ? ((price - cogs) / price) * 100 : 0;
+
+    res.json({
+      cogs,
+      marginPercent,
+      ingredientsBreakdown
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
 // DELETE /api/menu/:id (Archive)
 router.delete('/:id', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
     const item = await MenuItem.findById(req.params.id);
     if (!item) return res.status(404).send('Not found');
+    
+    const Recipe = require('../models/Recipe');
+    // Remove orphaned recipes to preserve data integrity
+    await Recipe.deleteMany({ menuItemId: item._id });
+    
     item.isArchived = true;
     await item.save();
-    res.json({ message: 'Item archived' });
+    res.json({ message: 'Item archived and recipes removed' });
   } catch (err) {
     res.status(500).send('Server error');
   }
