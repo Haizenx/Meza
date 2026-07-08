@@ -82,7 +82,7 @@ router.post('/', authenticate, [
         }
 
         // 1. Fetch current price from DB (do NOT trust client price)
-        const menuItem = await MenuItem.findById(item.menuItemId).session(session);
+        const menuItem = await MenuItem.findById(item.menuItemId);
         if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
       
       let basePrice = menuItem.price;
@@ -161,7 +161,7 @@ router.post('/', authenticate, [
     // 4. Execute Atomic Raw Inventory Deductions
     for (let [ingId, amount] of inventoryDeductions.entries()) {
       await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
-      const ingredient = await Ingredient.findById(ingId).session(session);
+      const ingredient = await Ingredient.findById(ingId);
       if (ingredient) {
 
         // Low Stock Alert for Raw Ingredient
@@ -211,7 +211,7 @@ router.post('/', authenticate, [
       fulfillmentStatus: fulfillmentStatus || 'pending'
     });
 
-    await newOrder.save({ session });
+    await newOrder.save();
 
     if (newOrder.status === 'completed') {
       const transaction = new Transaction({
@@ -225,7 +225,7 @@ router.post('/', authenticate, [
         changeDue: newOrder.changeDue,
         cashierId: newOrder.cashierId
       });
-      await transaction.save({ session });
+      await transaction.save();
     }
 
     
@@ -283,7 +283,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
           throw new Error('Invalid item data');
         }
 
-        const menuItem = await MenuItem.findById(item.menuItemId).session(session);
+        const menuItem = await MenuItem.findById(item.menuItemId);
         if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
       if (!menuItem.isAvailable) throw new Error(`Item ${menuItem.name} is currently unavailable`);
 
@@ -358,7 +358,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
 
     for (let [ingId, amount] of inventoryDeductions.entries()) {
       await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
-      const ingredient = await Ingredient.findById(ingId).session(session);
+      const ingredient = await Ingredient.findById(ingId);
       if (ingredient) {
 
         if (ingredient.stockQuantity <= ingredient.lowStockThreshold) {
@@ -390,7 +390,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
       fulfillmentStatus: 'pending'
     });
 
-    await newOrder.save({ session });
+    await newOrder.save();
     
     if (status === 'completed') {
       const transaction = new Transaction({
@@ -403,7 +403,7 @@ router.post('/qr', qrLimiter, async (req, res) => {
         cashTendered: newOrder.total,
         changeDue: 0
       });
-      await transaction.save({ session });
+      await transaction.save();
     }
 
     
@@ -525,10 +525,10 @@ router.put('/:id/void', authenticate, async (req, res) => {
     
     
     try {
-      await order.save({ session });
+      await order.save();
 
       // Create a void transaction
-      const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' }).session(session);
+      const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' });
       
       const transaction = new Transaction({
         orderId: order._id,
@@ -541,7 +541,7 @@ router.put('/:id/void', authenticate, async (req, res) => {
         managerId: authorizedManager._id,
         reason: voidReason
       });
-      await transaction.save({ session });
+      await transaction.save();
 
       // RESTORE INVENTORY: Reverse stock deductions for voided order
       for (const item of order.items) {
@@ -549,7 +549,7 @@ router.put('/:id/void', authenticate, async (req, res) => {
         await MenuItem.updateOne({ _id: item.menuItemId }, { $inc: { stockQuantity: item.quantity } });
         
         // Restore raw ingredient stock based on recipe
-        const recipe = await Recipe.findOne({ menuItemId: item.menuItemId, size: item.size || 'Regular' }).session(session);
+        const recipe = await Recipe.findOne({ menuItemId: item.menuItemId, size: item.size || 'Regular' });
         if (recipe && recipe.ingredients) {
           for (const ri of recipe.ingredients) {
             await Ingredient.updateOne({ _id: ri.ingredientId }, { $inc: { stockQuantity: ri.quantity * item.quantity } });
@@ -646,7 +646,7 @@ router.put('/:id/pay', authenticate, async (req, res) => {
         changeDue: order.changeDue,
         cashierId: req.user.id
       });
-      await transaction.save({ session });
+      await transaction.save();
 
       
     } catch (err) { throw err; }
