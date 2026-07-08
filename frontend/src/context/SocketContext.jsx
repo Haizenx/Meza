@@ -10,8 +10,9 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (token) {
-      const newSocket = io(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`, {
-        auth: { token }
+      const newSocket = io(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}`, {
+        auth: { token },
+        transports: ['websocket']
       });
       setSocket(newSocket);
 
