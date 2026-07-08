@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Lock, Mail, ArrowRight, Download } from 'lucide-react';
+import mezaLogo from '../assets/meza-logo.png';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -71,7 +72,7 @@ export default function Login() {
         ></div>
         
         <div className="relative z-10 flex flex-col items-center">
-          <img src="/src/assets/meza-logo.png" alt="Meza Cafe" className="w-32 h-32 rounded-xl shadow-2xl mb-8 border-4 border-white/20" />
+          <img src={mezaLogo} alt="Meza Cafe" className="w-32 h-32 rounded-xl shadow-2xl mb-8 border-4 border-white/20" />
           
           <div className="w-32 receipt-divider mb-6 opacity-40 border-white"></div>
           
