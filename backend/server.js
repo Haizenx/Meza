@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
 
 
 
@@ -40,6 +41,7 @@ app.use(cookieParser());
 
 // SECURITY MIDDLEWARE
 app.use(helmet()); // Set security HTTP headers
+app.use(mongoSanitize()); // Prevent NoSQL Injection
 
 
 
@@ -132,7 +134,31 @@ io.on('connection', (socket) => {
   });
 });
 
+const publicSocketLimiter = new Map();
 publicIo.on('connection', (socket) => {
+  const ip = socket.handshake.address;
+  const now = Date.now();
+  const limitWindow = 60000; // 1 minute
+  const maxConnections = 20;
+
+  let connectionData = publicSocketLimiter.get(ip);
+  if (!connectionData) {
+    connectionData = { count: 1, firstConnection: now };
+  } else {
+    if (now - connectionData.firstConnection > limitWindow) {
+      connectionData = { count: 1, firstConnection: now };
+    } else {
+      connectionData.count++;
+    }
+  }
+  publicSocketLimiter.set(ip, connectionData);
+
+  if (connectionData.count > maxConnections) {
+    console.warn(`Rate limit exceeded for WebSocket IP: ${ip}`);
+    socket.disconnect(true);
+    return;
+  }
+
   console.log(`Public client connected: ${socket.id}`);
   socket.on('disconnect', () => {
     console.log(`Public client disconnected: ${socket.id}`);

@@ -3,14 +3,18 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const TokenBlocklist = require('../models/TokenBlocklist');
 const { authenticate, authorize } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
-  max: 10, // 10 attempts per IP
-  message: { message: 'Too many attempts from this IP, please try again after 15 minutes' }
+  max: 10, // 10 attempts per IP + Email
+  keyGenerator: (req) => {
+    return req.ip + '_' + (req.body.email || '');
+  },
+  message: { message: 'Too many attempts from this IP/Email combination, please try again after 15 minutes' }
 });
 
 const validate = (req, res, next) => {
@@ -32,6 +36,8 @@ router.post('/login', authLimiter, [
     const user = await User.findOne({ email });
     
     if (!user || !user.isActive) {
+      // Dummy compare to prevent timing attack enumeration
+      await bcrypt.compare(password, '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
       return res.status(400).json({ message: 'Invalid credentials or inactive account' });
     }
 
@@ -81,6 +87,16 @@ router.post('/logout', authenticate, async (req, res) => {
   try {
     // Revoke refresh token from DB
     await User.findByIdAndUpdate(req.user.id, { refreshToken: null });
+
+    // Blocklist the active access token
+    let token = req.cookies?.token;
+    if (!token && req.header('Authorization')?.startsWith('Bearer ')) {
+      token = req.header('Authorization').split(' ')[1];
+    }
+    if (token) {
+      await TokenBlocklist.create({ token });
+    }
+
     res.clearCookie('refreshToken');
     res.json({ message: 'Logged out successfully' });
   } catch (err) {

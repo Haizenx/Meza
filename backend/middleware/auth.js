@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const TokenBlocklist = require('../models/TokenBlocklist');
 
 const authenticate = async (req, res, next) => {
   // Extract from cookie or Authorization header for fallback (during dev/migration)
@@ -14,6 +15,11 @@ const authenticate = async (req, res, next) => {
   }
 
   try {
+    const isBlocklisted = await TokenBlocklist.findOne({ token });
+    if (isBlocklisted) {
+      return res.status(401).json({ message: 'Token is revoked' });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = { id: decoded.id, role: decoded.role };
     next();
