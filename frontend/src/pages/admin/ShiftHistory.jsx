@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { AlertTriangle, CheckCircle, Download, X, Activity, CreditCard, Banknote } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -14,7 +15,7 @@ export default function ShiftHistory() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
   const fetchShifts = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts`, {
+    fetch(`${API_URL}/api/shifts`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -57,7 +58,7 @@ export default function ShiftHistory() {
     setAnalyticsData(null);
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/shifts/${shift._id}/analytics`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/shifts/${shift._id}/analytics`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {

@@ -9,3 +9,10 @@ pnpm-debug.log*
 scratch/
 brain/
 .gemini/
+
+# Orphaned hotfix scripts
+fix_*.py
+fix_*.js
+test_*.js
+remove_*.py
+update_images*.js

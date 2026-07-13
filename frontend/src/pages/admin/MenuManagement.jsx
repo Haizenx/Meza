@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { Plus, Edit2, Archive, CheckCircle, XCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -37,7 +38,7 @@ export default function MenuManagement() {
 
   const handleToggleStatus = async (item) => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/menu/${item._id}`, {
+      await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/menu/${item._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',

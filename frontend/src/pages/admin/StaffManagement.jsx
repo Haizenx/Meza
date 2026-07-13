@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { Users, Shield, Plus, Edit2, KeyRound, Lock, UserCheck, UserX, X, Save } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -20,7 +21,7 @@ export default function StaffManagement() {
   });
 
   const fetchStaff = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/users`, {
+    fetch(`${API_URL}/api/users`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -61,7 +62,7 @@ export default function StaffManagement() {
 
   const handleSaveUser = async (e) => {
     e.preventDefault();
-    const url = modalMode === 'edit' ? `${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/users/${editingStaff._id}` : `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/users`;
+    const url = modalMode === 'edit' ? `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/users/${editingStaff._id}` : `${API_URL}/api/users`;
     const method = modalMode === 'edit' ? 'PUT' : 'POST';
 
     // Validation
@@ -102,7 +103,7 @@ export default function StaffManagement() {
     if (user._id === currentUser.id) return alert("You cannot deactivate yourself.");
     
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/users/${user._id}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/users/${user._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',

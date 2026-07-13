@@ -22,6 +22,8 @@ const transactionSchema = new mongoose.Schema({
 });
 
 // Guard: Enforce append-only at the application level
+// Note: This block is at the Mongoose level. Users with direct MongoDB shell/Compass access
+// can still modify records. The DB itself is not append-only without Atlas Enterprise roles.
 transactionSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany', 'update'], function(next) {
   next(new Error('Transactions are append-only and cannot be modified.'));
 });

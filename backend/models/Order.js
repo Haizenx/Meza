@@ -32,6 +32,17 @@ const orderSchema = new mongoose.Schema({
   tableNumber: { type: String },
   status: { type: String, enum: ['unpaid', 'completed', 'voided'], default: 'completed' }, // 'unpaid' for 'Pay at Counter' QR orders
   fulfillmentStatus: { type: String, enum: ['pending', 'preparing', 'ready', 'served'], default: 'pending' }, 
+  // Snapshot of inventory deductions at sale time for accurate void reversal
+  ingredientDeductions: [{
+    ingredientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Ingredient' },
+    quantity: { type: Number },
+    _id: false
+  }],
+  menuItemDeductions: [{
+    menuItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'MenuItem' },
+    quantity: { type: Number },
+    _id: false
+  }],
   voidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   voidReason: { type: String },
   createdAt: { type: Date, default: Date.now }

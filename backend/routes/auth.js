@@ -7,6 +7,7 @@ const TokenBlocklist = require('../models/TokenBlocklist');
 const { authenticate, authorize } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
+const crypto = require('crypto');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
@@ -55,9 +56,10 @@ router.post('/login', authLimiter, [
 
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
     const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    const hashedRefreshToken = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
     // Store refresh token in DB for revocation support
-    user.refreshToken = refreshToken;
+    user.refreshToken = hashedRefreshToken;
     await user.save();
 
     // Store Refresh Token in httpOnly cookie
@@ -89,8 +91,8 @@ router.post('/logout', authenticate, async (req, res) => {
     await User.findByIdAndUpdate(req.user.id, { refreshToken: null });
 
     // Blocklist the active access token
-    let token = req.cookies?.token;
-    if (!token && req.header('Authorization')?.startsWith('Bearer ')) {
+    let token = null;
+    if (req.header('Authorization')?.startsWith('Bearer ')) {
       token = req.header('Authorization').split(' ')[1];
     }
     if (token) {
@@ -119,7 +121,8 @@ router.post('/refresh', async (req, res) => {
     if (!user || !user.isActive) return res.status(401).json({ message: 'User inactive' });
     
     // Verify token matches what's stored in DB (revocation check)
-    if (user.refreshToken !== refreshToken) {
+    const hashedIncoming = crypto.createHash('sha256').update(refreshToken).digest('hex');
+    if (user.refreshToken !== hashedIncoming) {
       return res.status(401).json({ message: 'Refresh token has been revoked' });
     }
 

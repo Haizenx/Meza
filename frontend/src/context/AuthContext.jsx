@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import { createContext, useState, useContext, useEffect } from 'react';
 
 const AuthContext = createContext(null);
@@ -12,7 +13,7 @@ export const AuthProvider = ({ children }) => {
 
   const refreshAuthToken = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`${API_URL}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
       if (!res.ok) throw new Error('Not logged in');
       
       const data = await res.json();
@@ -62,7 +63,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
     } catch(e) {}
     setToken(null);
     setUser(null);

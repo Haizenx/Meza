@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { LogOut, CheckCircle, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Trash2, X, Play, SquareTerminal, WifiOff, Wifi, Printer, Search, Lock, UserCog, Pause, Bell, Percent } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -88,7 +89,7 @@ export default function CashierMode() {
     if (!token) return;
 
     // Connect authenticated socket
-    const newSocket = io(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`, {
+    const newSocket = io(`${API_URL}`, {
       auth: { token }
     });
 
@@ -149,7 +150,7 @@ export default function CashierMode() {
   const fetchShiftAnalytics = async () => {
     if (!currentShift) return;
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/${currentShift._id}/analytics`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/shifts/${currentShift._id}/analytics`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       setShiftAnalytics(data.analytics);
     } catch (e) { console.error("Analytics fetch error", e); }
@@ -157,7 +158,7 @@ export default function CashierMode() {
 
   const fetchShift = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/current`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/shifts/current`, { headers: { 'Authorization': `Bearer ${token}` } });
       const shift = await res.json();
       if (shift && shift._id) {
         localStorage.setItem('meza_cached_shift', JSON.stringify(shift));
@@ -177,7 +178,7 @@ export default function CashierMode() {
 
   const fetchMenu = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       localStorage.setItem('meza_cached_menu', JSON.stringify(data));
       setMenuItems(data.filter(i => !i.isArchived));
@@ -192,7 +193,7 @@ export default function CashierMode() {
     try {
       let onlineOrders = [];
       if (navigator.onLine) {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/kds/active`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await fetch(`${API_URL}/api/orders/kds/active`, { headers: { 'Authorization': `Bearer ${token}` } });
         if (res.ok) onlineOrders = await res.json();
       }
       
@@ -218,7 +219,7 @@ export default function CashierMode() {
 
   const fetchUnpaidOrders = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/unpaid`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/orders/unpaid`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       setUnpaidOrders(Array.isArray(data) ? data : []);
     } catch (e) { console.error("Unpaid orders fetch error", e); }
@@ -226,7 +227,7 @@ export default function CashierMode() {
 
   const markAsPaid = async (orderId, method) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/orders/${orderId}/pay`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/orders/${orderId}/pay`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ paymentMethod: method })
@@ -237,7 +238,7 @@ export default function CashierMode() {
 
   const updateKitchenStatus = async (orderId, newStatus) => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/orders/${orderId}/kds`, {
+      await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/orders/${orderId}/kds`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ fulfillmentStatus: newStatus })
@@ -267,7 +268,7 @@ export default function CashierMode() {
 
     // Check real connectivity
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } });
+      await fetch(`${API_URL}/api/menu`, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } });
     } catch (e) {
       return; // Truly offline
     }
@@ -277,7 +278,7 @@ export default function CashierMode() {
 
     for (let order of pendingToSync) {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders`, {
+        const res = await fetch(`${API_URL}/api/orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify(order)
@@ -443,7 +444,7 @@ export default function CashierMode() {
   const handlePinSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/auth/verify-pin`, {
+      const res = await fetch(`${API_URL}/api/auth/verify-pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ managerId: selectedManagerId, pin: pinInput })
@@ -557,7 +558,7 @@ export default function CashierMode() {
   const handleStartShift = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/start`, {
+      const res = await fetch(`${API_URL}/api/shifts/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ startingCash: parseFloat(startingCashInput) })
@@ -576,7 +577,7 @@ export default function CashierMode() {
   const handleEndShift = async (e) => {
     e.preventDefault();
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/shifts/end`, {
+      await fetch(`${API_URL}/api/shifts/end`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ actualCash: parseFloat(actualCashInput) })

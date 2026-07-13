@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, CreditCard, Banknote, Coffee, UtensilsCrossed, Croissant, Plus, Minus, CheckCircle } from 'lucide-react';
@@ -17,7 +18,7 @@ export default function QRMenu() {
   const [orderSuccess, setOrderSuccess] = useState(null);
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu/public`)
+    fetch(`${API_URL}/api/menu/public`)
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(data => setMenuItems(data))
       .catch(console.error);
@@ -26,7 +27,7 @@ export default function QRMenu() {
       transports: ['websocket']
     });
     socket.on('menu:updated', () => {
-      fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu/public`)
+      fetch(`${API_URL}/api/menu/public`)
         .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
         .then(data => setMenuItems(data));
     });
@@ -80,7 +81,7 @@ export default function QRMenu() {
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/orders/qr`, {
+      const res = await fetch(`${API_URL}/api/orders/qr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

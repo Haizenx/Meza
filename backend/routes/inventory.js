@@ -119,26 +119,13 @@ router.put('/:id', authenticate, authorize('owner', 'manager'), validateZod(ingr
 });
 
 // POST /api/inventory/purchase
-// Owner & Manager - Receive delivery and calculate Moving Average Cost
+// Owner & Manager - Receive delivery and calculate Moving Average Cost atomically
 router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZod(purchaseSchema), async (req, res) => {
   try {
     const PurchaseOrder = require('../models/PurchaseOrder');
     const { ingredientId, quantityReceived, totalCostPaid, supplierName, invoiceId } = req.body;
     
-    const ingredient = await Ingredient.findById(ingredientId);
-    if (!ingredient) return res.status(404).send('Ingredient not found');
-
     const unitCostForBatch = totalCostPaid / quantityReceived;
-
-    // Calculate Moving Average Cost
-    const currentStock = ingredient.stockQuantity || 0;
-    const currentUnitCost = ingredient.movingAverageCost || ingredient.unitCost;
-    
-    const currentTotalValue = currentStock * currentUnitCost;
-    const newTotalValue = currentTotalValue + totalCostPaid;
-    const newTotalStock = currentStock + quantityReceived;
-    
-    const newMovingAverageCost = newTotalValue / newTotalStock;
 
     // Create Purchase Order Record
     const po = new PurchaseOrder({
@@ -152,25 +139,52 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
     });
     await po.save();
 
-    // Update Ingredient using atomic $inc to prevent Read-Modify-Write data loss
-    await Ingredient.findByIdAndUpdate(ingredientId, {
-      $inc: { stockQuantity: quantityReceived },
-      $set: { 
-        movingAverageCost: newMovingAverageCost,
-        unitCost: newMovingAverageCost
-      }
-    });
-    
-    // update local reference if needed for response
-    ingredient.stockQuantity += quantityReceived;
-    ingredient.movingAverageCost = newMovingAverageCost;
-    ingredient.unitCost = newMovingAverageCost;
+    // Update Ingredient atomically using Aggregation Pipeline in Update (MongoDB 4.2+)
+    const updatedIngredient = await Ingredient.findOneAndUpdate(
+      { _id: ingredientId },
+      [{
+        $set: {
+          movingAverageCost: {
+            $divide: [
+              { $add: [
+                { $multiply: [
+                  { $ifNull: ["$stockQuantity", 0] },
+                  { $ifNull: ["$movingAverageCost", "$unitCost"] }
+                ]},
+                totalCostPaid
+              ]},
+              { $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived] }
+            ]
+          },
+          unitCost: {
+            $divide: [
+              { $add: [
+                { $multiply: [
+                  { $ifNull: ["$stockQuantity", 0] },
+                  { $ifNull: ["$movingAverageCost", "$unitCost"] }
+                ]},
+                totalCostPaid
+              ]},
+              { $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived] }
+            ]
+          },
+          stockQuantity: {
+            $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived]
+          }
+        }
+      }],
+      { new: true }
+    );
+
+    if (!updatedIngredient) {
+      return res.status(404).send('Ingredient not found');
+    }
 
     if (req.io) {
       req.io.emit('inventory:updated');
     }
 
-    res.status(201).json({ purchaseOrder: po, updatedIngredient: ingredient });
+    res.status(201).json({ purchaseOrder: po, updatedIngredient });
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');

@@ -14,10 +14,9 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 const AuditLog = require('../models/AuditLog');
 
-// Aggressive rate limiter for public QR ordering
 const qrLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // Max 5 QR orders per IP per minute
+  windowMs: 60 * 1000,
+  max: 5,
   message: { message: 'Too many orders from this device. Please wait a moment.' }
 });
 
@@ -27,8 +26,115 @@ const validate = (req, res, next) => {
   next();
 };
 
+// Fulfillment status transition map
+const VALID_TRANSITIONS = {
+  pending: ['preparing'],
+  preparing: ['ready'],
+  ready: ['served'],
+  served: []
+};
+
+// Helper: Process items, compute prices server-side, return processedItems and subtotal
+async function processOrderItems(items, menuItemDeductions) {
+  let subtotal = 0;
+  const processedItems = [];
+  const ingredientDeductionsMap = new Map();
+
+  for (const item of items) {
+    if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
+      throw new Error('Invalid item data');
+    }
+
+    const menuItem = await MenuItem.findById(item.menuItemId);
+    if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
+
+    let basePrice = menuItem.price;
+    if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
+      const sizeObj = menuItem.sizes.find(s => s.name === item.size);
+      if (sizeObj) basePrice = sizeObj.price;
+    }
+
+    let modifierSum = 0;
+    const verifiedModifiers = [];
+    if (Array.isArray(item.modifiers)) {
+      for (const mod of item.modifiers) {
+        let foundOption = null;
+        if (menuItem.modifierGroups) {
+          for (const group of menuItem.modifierGroups) {
+            const opt = group.options.find(o => o.name === mod.name);
+            if (opt) { foundOption = opt; break; }
+          }
+        }
+        if (foundOption) {
+          modifierSum += foundOption.price || 0;
+          verifiedModifiers.push({ name: foundOption.name, price: foundOption.price || 0 });
+        }
+      }
+    }
+
+    const itemFinalPrice = basePrice + modifierSum;
+    subtotal += itemFinalPrice * item.quantity;
+
+    processedItems.push({
+      menuItemId: menuItem._id,
+      nameAtSale: menuItem.name || 'Unknown Item',
+      priceAtSale: itemFinalPrice || 0,
+      quantity: item.quantity || 1,
+      size: item.size || null,
+      note: item.note || '',
+      modifiers: verifiedModifiers || []
+    });
+
+    // Queue menu item deductions
+    menuItemDeductions.push({ menuItemId: menuItem._id, quantity: item.quantity });
+
+    // Queue raw ingredient deductions based on recipe
+    const recipe = await Recipe.findOne({ menuItemId: menuItem._id });
+    if (recipe && recipe.ingredients) {
+      for (const ri of recipe.ingredients) {
+        const ingId = ri.ingredientId.toString();
+        const deductAmount = ri.quantity * item.quantity;
+        ingredientDeductionsMap.set(ingId, (ingredientDeductionsMap.get(ingId) || 0) + deductAmount);
+      }
+    }
+  }
+
+  return { processedItems, subtotal, ingredientDeductionsMap };
+}
+
+// Helper: Execute atomic inventory deductions and emit low-stock alerts
+async function executeDeductions(menuItemDeductions, ingredientDeductionsMap, io) {
+  const ingredientDeductions = [];
+
+  // Deduct finished goods atomically
+  for (const { menuItemId, quantity } of menuItemDeductions) {
+    const updated = await MenuItem.findOneAndUpdate(
+      { _id: menuItemId },
+      { $inc: { stockQuantity: -quantity } },
+      { returnDocument: 'after' }
+    );
+    if (updated && updated.stockQuantity <= (updated.lowStockThreshold || 5)) {
+      if (io) io.emit('inventory:low_stock', { ingredientId: updated._id, name: updated.name, stockQuantity: updated.stockQuantity });
+    }
+  }
+
+  // Deduct raw ingredients atomically
+  for (const [ingId, amount] of ingredientDeductionsMap.entries()) {
+    const updated = await Ingredient.findOneAndUpdate(
+      { _id: ingId },
+      { $inc: { stockQuantity: -amount } },
+      { returnDocument: 'after' }
+    );
+    ingredientDeductions.push({ ingredientId: ingId, quantity: amount });
+    if (updated && updated.stockQuantity <= updated.lowStockThreshold) {
+      if (io) io.emit('inventory:low_stock', { ingredientId: updated._id, name: updated.name, stockQuantity: updated.stockQuantity });
+    }
+  }
+
+  return ingredientDeductions;
+}
+
 // POST /api/orders/audit-void
-// Log a voided/abandoned cart from CashierMode
 router.post('/audit-void', authenticate, [
   body('reason').isString().notEmpty(),
   body('cartTotal').isNumeric()
@@ -41,7 +147,7 @@ router.post('/audit-void', authenticate, [
       targetModel: 'Order',
       oldValue: { cartTotal, items },
       newValue: null,
-      reason: reason
+      reason
     });
     await log.save();
     res.status(200).json({ message: 'Void audited successfully' });
@@ -51,8 +157,7 @@ router.post('/audit-void', authenticate, [
   }
 });
 
-// POST /api/orders
-// Create an order with idempotency, server-side calculation, and atomic inventory deduction
+// POST /api/orders — POS order creation
 router.post('/', authenticate, [
   body('localUUID').isString().notEmpty().withMessage('localUUID is required'),
   body('items').isArray({ min: 1 }).withMessage('Order must contain items'),
@@ -70,365 +175,100 @@ router.post('/', authenticate, [
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
     if (!shiftId) return res.status(400).json({ message: 'Active shift ID is required' });
 
-    let subtotal = 0;
-    const processedItems = [];
-    const inventoryDeductions = new Map(); // ingredientId -> quantity to deduct
+    const menuItemDeductions = [];
+    const { processedItems, subtotal, ingredientDeductionsMap } = await processOrderItems(items, menuItemDeductions);
 
-    
-    try {
-      for (let item of items) {
-        if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
-          throw new Error('Invalid item data');
-        }
+    // Execute inventory deductions immediately (POS orders are paid at the counter)
+    const ingredientDeductions = await executeDeductions(menuItemDeductions, ingredientDeductionsMap, req.io);
 
-        // 1. Fetch current price from DB (do NOT trust client price)
-        const menuItem = await MenuItem.findById(item.menuItemId);
-        if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
-      
-      let basePrice = menuItem.price;
-      if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
-        const sizeObj = menuItem.sizes.find(s => s.name === item.size);
-        if (sizeObj) basePrice = sizeObj.price;
-      }
-
-      let modifierSum = 0;
-      const verifiedModifiers = [];
-      
-      if (Array.isArray(item.modifiers)) {
-        item.modifiers.forEach(mod => {
-          let foundOption = null;
-          if (menuItem.modifierGroups) {
-            for (let group of menuItem.modifierGroups) {
-              const opt = group.options.find(o => o.name === mod.name);
-              if (opt) { foundOption = opt; break; }
-            }
-          }
-          if (foundOption) {
-            modifierSum += foundOption.price || 0;
-            verifiedModifiers.push({ name: foundOption.name, price: foundOption.price || 0 });
-          }
-        });
-      }
-
-      const itemFinalPrice = basePrice + modifierSum;
-      const itemTotal = itemFinalPrice * item.quantity;
-      subtotal += itemTotal;
-
-      processedItems.push({
-        menuItemId: menuItem._id,
-        nameAtSale: menuItem.name || 'Unknown Item',
-        priceAtSale: itemFinalPrice || 0, // Snapshotted at moment of sale (includes modifiers)
-        quantity: item.quantity || 1,
-        size: item.size || null,
-        note: item.note || '',
-        modifiers: verifiedModifiers || []
-      });
-
-      // 2. Deduct Finished Goods Stock directly from MenuItem
-      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } });
-      menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
-
-      // Low Stock Alert for Finished Good
-      if (menuItem.stockQuantity <= (menuItem.lowStockThreshold || 5)) {
-        if (req.io) {
-          req.io.emit('inventory:low_stock', {
-            ingredientId: menuItem._id,
-            name: menuItem.name,
-            stockQuantity: menuItem.stockQuantity
-          });
-        }
-      }
-
-      // 3. Queue Raw Inventory Deductions based on Recipe
-      const recipe = await Recipe.findOne({ menuItemId: menuItem._id });
-      if (recipe && recipe.ingredients) {
-        for (let ri of recipe.ingredients) {
-          const ingId = ri.ingredientId.toString();
-          const deductAmount = ri.quantity * item.quantity;
-          
-          if (inventoryDeductions.has(ingId)) {
-            inventoryDeductions.set(ingId, inventoryDeductions.get(ingId) + deductAmount);
-          } else {
-            inventoryDeductions.set(ingId, deductAmount);
-          }
-        }
-      }
-    }
-
-    // Calculate Final Total
-    // Constants re-declared later in the file for split payment logic
-
-    // 4. Execute Atomic Raw Inventory Deductions
-    for (let [ingId, amount] of inventoryDeductions.entries()) {
-      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
-      const ingredient = await Ingredient.findById(ingId);
-      if (ingredient) {
-
-        // Low Stock Alert for Raw Ingredient
-        if (ingredient.stockQuantity <= ingredient.lowStockThreshold) {
-          if (req.io) {
-            req.io.emit('inventory:low_stock', {
-              ingredientId: ingredient._id,
-              name: ingredient.name,
-              stockQuantity: ingredient.stockQuantity
-            });
-          }
-        }
-      }
-    }
-
-    // We are no longer trusting client total.
-    // If you have a discount system, you should compute it here.
-    // For now, no discount is applied server-side.
-    const discountAmount = 0; 
+    const discountAmount = 0;
     const total = Math.max(0, subtotal - discountAmount);
-    
-    // Calculate Change
+
     let changeDue = 0;
     if (paymentMethod === 'cash' && cashTendered >= total) {
       changeDue = cashTendered - total;
     } else if (paymentMethod === 'split' && Array.isArray(splitPayments)) {
       const totalTendered = splitPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      if (totalTendered >= total) {
-        changeDue = totalTendered - total;
-      }
+      if (totalTendered >= total) changeDue = totalTendered - total;
     }
 
     const newOrder = new Order({
-      localUUID,
-      items: processedItems,
-      subtotal,
-      discountAmount,
-      total,
-      paymentMethod,
-      splitPayments: paymentMethod === 'split' ? splitPayments : [],
-      cashTendered,
-      changeDue,
-      customerName,
-      cashierId: req.user.id,
-      shiftId: shiftId,
-      status: 'completed',
-      fulfillmentStatus: fulfillmentStatus || 'pending'
+      localUUID, items: processedItems, subtotal, discountAmount, total,
+      paymentMethod, splitPayments: paymentMethod === 'split' ? splitPayments : [],
+      cashTendered, changeDue, customerName,
+      cashierId: req.user.id, shiftId,
+      status: 'completed', fulfillmentStatus: fulfillmentStatus || 'pending',
+      ingredientDeductions, menuItemDeductions
     });
 
     await newOrder.save();
 
-    if (newOrder.status === 'completed') {
-      const transaction = new Transaction({
-        orderId: newOrder._id,
-        type: 'sale',
-        subtotal: newOrder.subtotal,
-        discountAmount: newOrder.discountAmount,
-        total: newOrder.total,
-        paymentMethod: newOrder.paymentMethod,
-        cashTendered: newOrder.cashTendered,
-        changeDue: newOrder.changeDue,
-        cashierId: newOrder.cashierId
-      });
-      await transaction.save();
-    }
+    await new Transaction({
+      orderId: newOrder._id, type: 'sale',
+      subtotal: newOrder.subtotal, discountAmount: newOrder.discountAmount,
+      total: newOrder.total, paymentMethod: newOrder.paymentMethod,
+      cashTendered: newOrder.cashTendered, changeDue: newOrder.changeDue,
+      cashierId: newOrder.cashierId
+    }).save();
 
-    
-
-    // Broadcast new order to Dashboard and KDS
     if (req.io) {
       req.io.emit('order:created', newOrder);
-      req.io.emit('shift:updated'); // Force ShiftHistory to recalculate live totals
+      req.io.emit('shift:updated');
       req.io.emit('kds:new_order', newOrder);
     }
 
     res.status(201).json(newOrder);
-    
-    } catch (err) { throw err; }
-
   } catch (err) {
-    // Handle MongoDB Duplicate Key Error for localUUID (Fixes double-tap offline sync race condition)
     if (err.code === 11000 && err.keyPattern && err.keyPattern.localUUID) {
-      console.log(`[SYNC] Duplicate localUUID ignored by DB: ${req.body.localUUID}`);
       const existingOrder = await Order.findOne({ localUUID: req.body.localUUID });
       return res.status(200).json(existingOrder);
     }
-
     console.error('Order creation failed:', err.message);
-    
-    // Check if error is due to non-replica set
-    if (err.message.includes('Transaction numbers are only allowed on a replica set member')) {
-      return res.status(500).json({ 
-        message: 'Database Configuration Error: MongoDB Transactions require a Replica Set. If running locally, you must run MongoDB as a single-node replica set.' 
-      });
-    }
-
     res.status(400).json({ message: err.message || 'Failed to process order' });
   }
 });
 
-// POST /api/orders/qr
-// Public endpoint for Table-Side QR Ordering (rate-limited)
+// POST /api/orders/qr — QR order (NO inventory deduction until paid)
 router.post('/qr', qrLimiter, async (req, res) => {
   try {
-    const { localUUID, items, paymentMethod, tableNumber, isPaidOnline } = req.body;
+    const { localUUID, items, paymentMethod, tableNumber } = req.body;
 
     if (!localUUID) return res.status(400).json({ message: 'localUUID is required' });
     if (!items || items.length === 0) return res.status(400).json({ message: 'Order must contain items' });
     if (!tableNumber) return res.status(400).json({ message: 'Table number is required' });
 
-    let subtotal = 0;
-    const processedItems = [];
-    const inventoryDeductions = new Map(); 
+    const menuItemDeductions = [];
+    const { processedItems, subtotal, ingredientDeductionsMap } = await processOrderItems(items, menuItemDeductions);
 
-    
-    try {
-      for (let item of items) {
-        if (!item.menuItemId || item.quantity <= 0 || item.quantity > 99) {
-          throw new Error('Invalid item data');
-        }
+    // QR orders do NOT deduct inventory until a cashier confirms payment.
+    // Store the deduction snapshots so they can be applied when paid.
 
-        const menuItem = await MenuItem.findById(item.menuItemId);
-        if (!menuItem) throw new Error(`MenuItem not found: ${item.menuItemId}`);
-      if (!menuItem.isAvailable) throw new Error(`Item ${menuItem.name} is currently unavailable`);
-
-      let basePrice = menuItem.price;
-      if (item.size && menuItem.sizes && menuItem.sizes.length > 0) {
-        const foundSize = menuItem.sizes.find(s => s.name === item.size);
-        if (foundSize) basePrice = foundSize.price;
-      }
-      
-      let modifierSum = 0;
-      const verifiedModifiers = [];
-      
-      if (Array.isArray(item.modifiers)) {
-        item.modifiers.forEach(mod => {
-          let foundOption = null;
-          if (menuItem.modifierGroups) {
-            for (let group of menuItem.modifierGroups) {
-              const opt = group.options.find(o => o.name === mod.name);
-              if (opt) { foundOption = opt; break; }
-            }
-          }
-          if (foundOption) {
-            modifierSum += foundOption.price || 0;
-            verifiedModifiers.push({ name: foundOption.name, price: foundOption.price || 0 });
-          }
-        });
-      }
-
-      const itemFinalPrice = basePrice + modifierSum;
-      const itemTotal = itemFinalPrice * item.quantity;
-      subtotal += itemTotal;
-
-      processedItems.push({
-        menuItemId: menuItem._id,
-        nameAtSale: menuItem.name || 'Unknown Item',
-        priceAtSale: itemFinalPrice || 0,
-        quantity: item.quantity || 1,
-        size: item.size || null,
-        note: item.note || '',
-        modifiers: verifiedModifiers || []
-      });
-
-      await MenuItem.updateOne({ _id: menuItem._id }, { $inc: { stockQuantity: -item.quantity } });
-      menuItem.stockQuantity = (menuItem.stockQuantity || 0) - item.quantity;
-
-      if (menuItem.stockQuantity <= (menuItem.lowStockThreshold || 5)) {
-        if (req.io) {
-          req.io.emit('inventory:low_stock', {
-            ingredientId: menuItem._id,
-            name: menuItem.name,
-            stockQuantity: menuItem.stockQuantity
-          });
-        }
-      }
-
-      const recipe = await Recipe.findOne({ menuItemId: menuItem._id });
-      if (recipe && recipe.ingredients) {
-        for (let ri of recipe.ingredients) {
-          const ingId = ri.ingredientId.toString();
-          const deductAmount = ri.quantity * item.quantity;
-          
-          if (inventoryDeductions.has(ingId)) {
-            inventoryDeductions.set(ingId, inventoryDeductions.get(ingId) + deductAmount);
-          } else {
-            inventoryDeductions.set(ingId, deductAmount);
-          }
-        }
-      }
+    const ingredientDeductions = [];
+    for (const [ingId, amount] of ingredientDeductionsMap.entries()) {
+      ingredientDeductions.push({ ingredientId: ingId, quantity: amount });
     }
-
-    const total = subtotal;
-
-    for (let [ingId, amount] of inventoryDeductions.entries()) {
-      await Ingredient.updateOne({ _id: ingId }, { $inc: { stockQuantity: -amount } });
-      const ingredient = await Ingredient.findById(ingId);
-      if (ingredient) {
-
-        if (ingredient.stockQuantity <= ingredient.lowStockThreshold) {
-          if (req.io) {
-            req.io.emit('inventory:low_stock', {
-              ingredientId: ingredient._id,
-              name: ingredient.name,
-              stockQuantity: ingredient.stockQuantity
-            });
-          }
-        }
-      }
-    }
-
-    // SECURITY: Never trust client-side isPaidOnline flag.
-    // All QR orders start as 'unpaid' until a cashier confirms payment or a real payment webhook arrives.
-    const status = 'unpaid';
-    const finalPaymentMethod = paymentMethod || 'cash';
 
     const newOrder = new Order({
-      localUUID,
-      items: processedItems,
-      subtotal,
-      total,
-      paymentMethod: finalPaymentMethod,
-      orderType: 'qr',
-      tableNumber: tableNumber,
-      status: status,
-      fulfillmentStatus: 'pending'
+      localUUID, items: processedItems, subtotal, total: subtotal,
+      paymentMethod: paymentMethod || 'cash',
+      orderType: 'qr', tableNumber,
+      status: 'unpaid', fulfillmentStatus: 'pending',
+      ingredientDeductions, menuItemDeductions
     });
 
     await newOrder.save();
-    
-    if (status === 'completed') {
-      const transaction = new Transaction({
-        orderId: newOrder._id,
-        type: 'sale',
-        subtotal: newOrder.subtotal,
-        discountAmount: 0,
-        total: newOrder.total,
-        paymentMethod: newOrder.paymentMethod,
-        cashTendered: newOrder.total,
-        changeDue: 0
-      });
-      await transaction.save();
-    }
-
-    
 
     if (req.io) {
       req.io.emit('order:created', newOrder);
-      if (status === 'completed') {
-        req.io.emit('kds:new_order', newOrder);
-      } else {
-        // Unpaid order, just notify cashier
-        req.io.emit('order:updated', newOrder);
-      }
+      req.io.emit('order:updated', newOrder);
     }
 
     res.status(201).json(newOrder);
-
-    } catch (err) { throw err; }
-
   } catch (err) {
     if (err.code === 11000 && err.keyPattern && err.keyPattern.localUUID) {
-      console.log(`[QR-SYNC] Duplicate localUUID ignored by DB: ${req.body.localUUID}`);
       const existingOrder = await Order.findOne({ localUUID: req.body.localUUID });
       return res.status(200).json(existingOrder);
     }
-
     console.error('QR Order creation failed:', err.message);
     res.status(400).json({ message: err.message || 'Failed to process order' });
   }
@@ -437,28 +277,20 @@ router.post('/qr', qrLimiter, async (req, res) => {
 // GET /api/orders (History)
 router.get('/', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
-    const orders = await Order.find()
-      .populate('cashierId', 'name')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const orders = await Order.find().populate('cashierId', 'name').sort({ createdAt: -1 }).limit(100);
     res.json(orders);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
-// GET /api/orders/kds/active (Fetch active orders for KDS)
+// GET /api/orders/kds/active
 router.get('/kds/active', authenticate, async (req, res) => {
   try {
-    const orders = await Order.find({ 
-      status: 'completed', 
-      fulfillmentStatus: { $in: ['pending', 'preparing', 'ready'] } 
-    }).sort({ createdAt: 1 }); // Oldest first
-    
+    const orders = await Order.find({
+      status: 'completed',
+      fulfillmentStatus: { $in: ['pending', 'preparing', 'ready'] }
+    }).sort({ createdAt: 1 });
     res.json(orders);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
 // GET /api/orders/unpaid
@@ -466,31 +298,25 @@ router.get('/unpaid', authenticate, async (req, res) => {
   try {
     const orders = await Order.find({ status: 'unpaid' }).sort({ createdAt: -1 });
     res.json(orders);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
 // GET /api/orders/:id
 router.get('/:id', authenticate, authorize('owner', 'manager'), async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id)
-      .populate('cashierId', 'name')
-      .populate('items.menuItemId', 'name photoUrl');
+    const order = await Order.findById(req.params.id).populate('cashierId', 'name').populate('items.menuItemId', 'name photoUrl');
     if (!order) return res.status(404).send('Order not found');
     res.json(order);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
 // PUT /api/orders/:id/void
 router.put('/:id/void', authenticate, async (req, res) => {
   try {
     const { voidReason, managerPin, managerId } = req.body;
-    
-    if (!managerPin || !managerId) return res.status(400).json({ message: 'Manager PIN and ID are required to authorize void.' });
-    
+
+    if (!managerPin || !managerId) return res.status(400).json({ message: 'Manager PIN and ID are required.' });
+
     const authorizedManager = await User.findById(managerId);
     if (!authorizedManager || !['manager', 'owner'].includes(authorizedManager.role) || !authorizedManager.pinHash) {
       return res.status(400).json({ message: 'Invalid manager account' });
@@ -501,7 +327,6 @@ router.put('/:id/void', authenticate, async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(managerPin, authorizedManager.pinHash);
-    
     if (isMatch) {
       authorizedManager.pinFailedAttempts = 0;
       authorizedManager.pinLockedUntil = null;
@@ -509,7 +334,7 @@ router.put('/:id/void', authenticate, async (req, res) => {
     } else {
       authorizedManager.pinFailedAttempts = (authorizedManager.pinFailedAttempts || 0) + 1;
       if (authorizedManager.pinFailedAttempts >= 5) {
-        authorizedManager.pinLockedUntil = new Date(Date.now() + 10 * 60 * 1000); // Lock for 10 mins
+        authorizedManager.pinLockedUntil = new Date(Date.now() + 10 * 60 * 1000);
       }
       await authorizedManager.save();
       return res.status(403).json({ message: 'Invalid Manager PIN' });
@@ -522,48 +347,35 @@ router.put('/:id/void', authenticate, async (req, res) => {
     order.status = 'voided';
     order.voidedBy = authorizedManager._id;
     order.voidReason = voidReason;
-    
-    
-    try {
-      await order.save();
+    await order.save();
 
-      // Create a void transaction
-      const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' });
-      
-      const transaction = new Transaction({
-        orderId: order._id,
-        originalTransactionId: originalTx ? originalTx._id : undefined,
-        type: 'void',
-        subtotal: -order.subtotal, // Negate for analytics summing
-        discountAmount: -order.discountAmount,
-        total: -order.total,
-        paymentMethod: order.paymentMethod,
-        managerId: authorizedManager._id,
-        reason: voidReason
-      });
-      await transaction.save();
+    // Create void transaction
+    const originalTx = await Transaction.findOne({ orderId: order._id, type: 'sale' });
+    await new Transaction({
+      orderId: order._id,
+      originalTransactionId: originalTx ? originalTx._id : undefined,
+      type: 'void',
+      subtotal: -order.subtotal,
+      discountAmount: -order.discountAmount,
+      total: -order.total,
+      paymentMethod: order.paymentMethod,
+      managerId: authorizedManager._id,
+      reason: voidReason
+    }).save();
 
-      // RESTORE INVENTORY: Reverse stock deductions for voided order
-      for (const item of order.items) {
-        // Restore finished goods stock
-        await MenuItem.updateOne({ _id: item.menuItemId }, { $inc: { stockQuantity: item.quantity } });
-        
-        // Restore raw ingredient stock based on recipe
-        const recipe = await Recipe.findOne({ menuItemId: item.menuItemId, size: item.size || 'Regular' });
-        if (recipe && recipe.ingredients) {
-          for (const ri of recipe.ingredients) {
-            await Ingredient.updateOne({ _id: ri.ingredientId }, { $inc: { stockQuantity: ri.quantity * item.quantity } });
-          }
-        }
+    // RESTORE INVENTORY using the exact snapshot from sale time
+    if (order.menuItemDeductions && order.menuItemDeductions.length > 0) {
+      for (const d of order.menuItemDeductions) {
+        await MenuItem.findOneAndUpdate({ _id: d.menuItemId }, { $inc: { stockQuantity: d.quantity } });
       }
-
-      
-    } catch (err) { throw err; }
-
-    if (req.io) {
-      req.io.emit('order:updated', order);
+    }
+    if (order.ingredientDeductions && order.ingredientDeductions.length > 0) {
+      for (const d of order.ingredientDeductions) {
+        await Ingredient.findOneAndUpdate({ _id: d.ingredientId }, { $inc: { stockQuantity: d.quantity } });
+      }
     }
 
+    if (req.io) req.io.emit('order:updated', order);
     res.json(order);
   } catch (err) {
     console.error(err);
@@ -571,40 +383,34 @@ router.put('/:id/void', authenticate, async (req, res) => {
   }
 });
 
-
-// PUT /api/orders/:id/kds (Update KDS status)
+// PUT /api/orders/:id/kds — Update fulfillment status with transition guard
 router.put('/:id/kds', authenticate, async (req, res) => {
   try {
     const { fulfillmentStatus } = req.body;
-    
-    // OCC: Only allow updating fulfillment status if the order hasn't been voided
-    const order = await Order.findOneAndUpdate(
-      { _id: req.params.id, status: { $ne: 'voided' } },
-      { fulfillmentStatus },
-      { new: true }
-    );
-    if (!order) return res.status(404).json({ message: 'Order not found or has been voided by a manager' });
+    const order = await Order.findOne({ _id: req.params.id, status: { $ne: 'voided' } });
+    if (!order) return res.status(404).json({ message: 'Order not found or has been voided' });
 
-    if (req.io) {
-      req.io.emit('kds:update_status', order);
+    // Validate state transition
+    const allowed = VALID_TRANSITIONS[order.fulfillmentStatus];
+    if (!allowed || !allowed.includes(fulfillmentStatus)) {
+      return res.status(400).json({ message: `Cannot transition from '${order.fulfillmentStatus}' to '${fulfillmentStatus}'` });
     }
 
+    order.fulfillmentStatus = fulfillmentStatus;
+    await order.save();
+
+    if (req.io) req.io.emit('kds:update_status', order);
     res.json(order);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
-
-// PUT /api/orders/:id/pay
+// PUT /api/orders/:id/pay — Cashier confirms payment for QR/unpaid orders
 router.put('/:id/pay', authenticate, async (req, res) => {
   try {
     const { paymentMethod } = req.body;
-    
-    const Shift = require('../models/Shift');
+
     const activeShift = await Shift.findOne({ status: 'open' }).sort({ createdAt: -1 });
-    
-    // Fetch order first to check current fulfillmentStatus
+
     const existingOrder = await Order.findOne({ _id: req.params.id, status: 'unpaid' });
     if (!existingOrder) return res.status(400).json({ message: 'Order not found, already paid, or voided' });
 
@@ -613,54 +419,58 @@ router.put('/:id/pay', authenticate, async (req, res) => {
       paymentMethod: paymentMethod || 'cash',
       cashierId: req.user.id
     };
+    if (activeShift) updateFields.shiftId = activeShift._id;
+    if (existingOrder.fulfillmentStatus === 'pending') updateFields.fulfillmentStatus = 'preparing';
 
-    if (activeShift) {
-      updateFields.shiftId = activeShift._id;
-    }
-
-    if (existingOrder.fulfillmentStatus === 'pending') {
-      updateFields.fulfillmentStatus = 'preparing';
-    }
-
-    // OCC: Ensure order is still unpaid before paying it
     const order = await Order.findOneAndUpdate(
       { _id: req.params.id, status: 'unpaid' },
       { $set: updateFields },
       { new: true }
     );
-    
     if (!order) return res.status(400).json({ message: 'Order was paid by another transaction' });
 
-    
-    try {
-      // Create transaction for financial records
+    // NOW deduct inventory (QR orders defer deduction to payment)
+    if (order.menuItemDeductions && order.menuItemDeductions.length > 0) {
+      for (const d of order.menuItemDeductions) {
+        const updated = await MenuItem.findOneAndUpdate(
+          { _id: d.menuItemId },
+          { $inc: { stockQuantity: -d.quantity } },
+          { returnDocument: 'after' }
+        );
+        if (updated && updated.stockQuantity <= (updated.lowStockThreshold || 5)) {
+          if (req.io) req.io.emit('inventory:low_stock', { ingredientId: updated._id, name: updated.name, stockQuantity: updated.stockQuantity });
+        }
+      }
+    }
+    if (order.ingredientDeductions && order.ingredientDeductions.length > 0) {
+      for (const d of order.ingredientDeductions) {
+        const updated = await Ingredient.findOneAndUpdate(
+          { _id: d.ingredientId },
+          { $inc: { stockQuantity: -d.quantity } },
+          { returnDocument: 'after' }
+        );
+        if (updated && updated.stockQuantity <= updated.lowStockThreshold) {
+          if (req.io) req.io.emit('inventory:low_stock', { ingredientId: updated._id, name: updated.name, stockQuantity: updated.stockQuantity });
+        }
+      }
+    }
 
-      const transaction = new Transaction({
-        orderId: order._id,
-        type: 'sale',
-        subtotal: order.subtotal,
-        discountAmount: order.discountAmount,
-        total: order.total,
-        paymentMethod: order.paymentMethod,
-        cashTendered: order.cashTendered,
-        changeDue: order.changeDue,
-        cashierId: req.user.id
-      });
-      await transaction.save();
-
-      
-    } catch (err) { throw err; }
+    await new Transaction({
+      orderId: order._id, type: 'sale',
+      subtotal: order.subtotal, discountAmount: order.discountAmount,
+      total: order.total, paymentMethod: order.paymentMethod,
+      cashTendered: order.cashTendered, changeDue: order.changeDue,
+      cashierId: req.user.id
+    }).save();
 
     if (req.io) {
       req.io.emit('order:updated', order);
-      req.io.emit('shift:updated'); // Updates the shift stats with this new paid revenue
-      req.io.emit('kds:new_order', order); // Now that it's paid, send to Kitchen!
+      req.io.emit('shift:updated');
+      req.io.emit('kds:new_order', order);
     }
 
     res.json(order);
-  } catch (err) {
-    res.status(500).send('Server error');
-  }
+  } catch (err) { res.status(500).send('Server error'); }
 });
 
 module.exports = router;

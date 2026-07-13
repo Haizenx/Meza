@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import React, { useState, useEffect } from 'react';
 import { PackageCheck, AlertTriangle, Search, ArrowUp, ArrowDown, X, Layers, Tag, Beaker, Upload, History, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -31,7 +32,7 @@ export default function InventoryManagement() {
   const [createData, setCreateData] = useState({});
 
   const fetchData = () => {
-    fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/menu`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setMenuItems)
       .catch(console.error);
@@ -96,7 +97,7 @@ export default function InventoryManagement() {
     if (newStock < 0) return alert("Stock cannot be negative.");
 
     const isRaw = activeTab === 'raw';
-    const endpoint = isRaw ? `${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/inventory/${currentItem._id}` : `${import.meta.env.VITE_API_URL || `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}`}/api/menu/${currentItem._id}`;
+    const endpoint = isRaw ? `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/inventory/${currentItem._id}` : `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/menu/${currentItem._id}`;
 
     try {
       const payload = isRaw ? {
@@ -136,7 +137,7 @@ export default function InventoryManagement() {
     }
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/inventory/purchase`, {
+      const res = await fetch(`${API_URL}/api/inventory/purchase`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -186,7 +187,7 @@ export default function InventoryManagement() {
   const handleCreate = async (e) => {
     e.preventDefault();
     const isRaw = activeTab === 'raw';
-    const endpoint = isRaw ? `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/inventory` : `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5001')}/api/menu`;
+    const endpoint = isRaw ? `${API_URL}/api/inventory` : `${API_URL}/api/menu`;
 
     const payload = { ...createData };
     if (!isRaw) payload.price = parseFloat(payload.price) || 0;

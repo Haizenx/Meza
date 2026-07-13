@@ -1,5 +1,11 @@
 const sanitize = (obj) => {
-  if (obj instanceof Object) {
+  if (Array.isArray(obj)) {
+    obj.forEach(item => {
+      if (typeof item === 'object' && item !== null) {
+        sanitize(item);
+      }
+    });
+  } else if (typeof obj === 'object' && obj !== null) {
     for (const key in obj) {
       if (key.startsWith('$') || key.includes('.')) {
         delete obj[key];
