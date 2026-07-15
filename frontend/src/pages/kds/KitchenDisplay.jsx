@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { ChefHat, Check, Clock, AlertCircle, GripVertical, UtensilsCrossed } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -21,7 +22,7 @@ export default function KitchenDisplay() {
     try {
       let onlineOrders = [];
       if (navigator.onLine) {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/kds/active`, {
+        const res = await fetch(`${API_URL}/api/orders/kds/active`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) onlineOrders = await res.json();
@@ -114,7 +115,7 @@ export default function KitchenDisplay() {
         return;
       }
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/${orderId}/kds`, {
+      const res = await fetch(`${API_URL}/api/orders/${orderId}/kds`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

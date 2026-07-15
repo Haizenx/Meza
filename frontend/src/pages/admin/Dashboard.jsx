@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect, useCallback } from 'react';
 import { TrendingUp, Users, Receipt, CreditCard, ArrowUpRight, ArrowDownRight, Flame, AlertTriangle, PackageCheck, Activity } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -30,7 +31,7 @@ export default function Dashboard() {
   });
 
   const fetchDashboardData = useCallback(() => {
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/analytics/dashboard?timeframe=${timeframe}`, {
+    fetch(`${API_URL}/api/analytics/dashboard?timeframe=${timeframe}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))

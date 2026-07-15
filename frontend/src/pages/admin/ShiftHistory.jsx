@@ -58,7 +58,7 @@ export default function ShiftHistory() {
     setAnalyticsData(null);
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/shifts/${shift._id}/analytics`, {
+      const res = await fetch(`${API_URL}/api/shifts/${shift._id}/analytics`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {

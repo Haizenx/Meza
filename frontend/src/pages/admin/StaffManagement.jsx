@@ -62,7 +62,7 @@ export default function StaffManagement() {
 
   const handleSaveUser = async (e) => {
     e.preventDefault();
-    const url = modalMode === 'edit' ? `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/users/${editingStaff._id}` : `${API_URL}/api/users`;
+    const url = modalMode === 'edit' ? `${API_URL}/api/users/${editingStaff._id}` : `${API_URL}/api/users`;
     const method = modalMode === 'edit' ? 'PUT' : 'POST';
 
     // Validation
@@ -103,7 +103,7 @@ export default function StaffManagement() {
     if (user._id === currentUser.id) return alert("You cannot deactivate yourself.");
     
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/users/${user._id}`, {
+      const res = await fetch(`${API_URL}/api/users/${user._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',

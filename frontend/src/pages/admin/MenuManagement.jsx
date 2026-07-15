@@ -17,14 +17,14 @@ export default function MenuManagement() {
   const [isArchiving, setIsArchiving] = useState(false);
 
   const fetchMenu = () => {
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu`, {
+    fetch(`${API_URL}/api/menu`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setItems)
       .catch(console.error);
       
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, {
+    fetch(`${API_URL}/api/inventory`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -38,7 +38,7 @@ export default function MenuManagement() {
 
   const handleToggleStatus = async (item) => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/menu/${item._id}`, {
+      await fetch(`${API_URL}/api/menu/${item._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -71,7 +71,7 @@ export default function MenuManagement() {
     if (!itemToArchive) return;
     setIsArchiving(true);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${itemToArchive._id}`, {
+      await fetch(`${API_URL}/api/menu/${itemToArchive._id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

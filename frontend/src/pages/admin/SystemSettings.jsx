@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState } from 'react';
 import { Store, Receipt, Printer, CreditCard, Save, CheckCircle, Smartphone } from 'lucide-react';
 
@@ -34,7 +35,7 @@ export default function SystemSettings() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/settings`, {
+      await fetch(`${API_URL}/api/settings`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { Tag, ChevronDown, ChevronUp, Beaker, Plus, Trash2, Save, Calculator } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -17,7 +18,7 @@ export default function RecipeCalculator() {
     if (!token) return;
     
     // Fetch Server-Calculated Margins with ingredientsBreakdown
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/analytics/margins`, { 
+    fetch(`${API_URL}/api/analytics/margins`, { 
       headers: { 'Authorization': `Bearer ${token}` } 
     })
       .then(r => r.json())
@@ -25,7 +26,7 @@ export default function RecipeCalculator() {
       .catch(console.error);
 
     // Fetch Raw Ingredients for Sandbox
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, { 
+    fetch(`${API_URL}/api/inventory`, { 
       headers: { 'Authorization': `Bearer ${token}` } 
     })
       .then(r => r.json())
@@ -124,7 +125,7 @@ export default function RecipeCalculator() {
     try {
       const validIngredients = sandboxIngredients.filter(i => i.ingredientId && parseFloat(i.quantity) > 0);
       
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes`, {
+      const res = await fetch(`${API_URL}/api/recipes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({

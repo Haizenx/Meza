@@ -1,3 +1,4 @@
+import { API_URL } from '../../config';
 import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Beaker, Tag, DollarSign, Image as ImageIcon, Settings2 } from 'lucide-react';
 
@@ -35,7 +36,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
         
         // Fetch recipes
         setIsLoading(true);
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes?menuItemId=${initialData._id}`, {
+        fetch(`${API_URL}/api/recipes?menuItemId=${initialData._id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
@@ -173,8 +174,8 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
       const menuPayload = { name, category, price: basePrice, sizes: cleanedSizes, description, photoUrl, isAvailable, modifierGroups: cleanedModifierGroups };
       const menuMethod = initialData ? 'PUT' : 'POST';
       const menuUrl = initialData 
-        ? `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${initialData._id}`
-        : `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu`;
+        ? `${API_URL}/api/menu/${initialData._id}`
+        : `${API_URL}/api/menu`;
 
       const menuRes = await fetch(menuUrl, {
         method: menuMethod,
@@ -206,7 +207,7 @@ export default function MenuItemModal({ isOpen, onClose, initialData, rawIngredi
       }
 
       if (recipesPayload.length > 0) {
-        const recipeRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/recipes/batch`, {
+        const recipeRes = await fetch(`${API_URL}/api/recipes/batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ recipes: recipesPayload })

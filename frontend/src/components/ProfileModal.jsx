@@ -1,3 +1,4 @@
+import { API_URL } from '../config';
 import { useState } from 'react';
 import { X, User, Mail, Lock, ShieldAlert, CheckCircle, AlertTriangle, Moon, Sun, Bell, Globe, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -26,7 +27,7 @@ export default function ProfileModal({ isOpen, onClose }) {
     setStatus({ type: '', message: '' });
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/users/profile`, {
+      const res = await fetch(`${API_URL}/api/users/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

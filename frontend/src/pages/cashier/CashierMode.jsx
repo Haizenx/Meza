@@ -124,7 +124,7 @@ export default function CashierMode() {
     fetchUnpaidOrders();
     
     // Fetch managers for PIN auth dropdown
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/auth/managers`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/auth/managers`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : Promise.reject())
       .then(data => {
         setManagersList(data);
@@ -227,7 +227,7 @@ export default function CashierMode() {
 
   const markAsPaid = async (orderId, method) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/orders/${orderId}/pay`, {
+      const res = await fetch(`${API_URL}/api/orders/${orderId}/pay`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ paymentMethod: method })
@@ -238,7 +238,7 @@ export default function CashierMode() {
 
   const updateKitchenStatus = async (orderId, newStatus) => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || `${API_URL}`}/api/orders/${orderId}/kds`, {
+      await fetch(`${API_URL}/api/orders/${orderId}/kds`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ fulfillmentStatus: newStatus })
@@ -360,7 +360,7 @@ export default function CashierMode() {
 
   const toggleAvailability = async (id) => {
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/menu/${id}/toggle-availability`, {
+      await fetch(`${API_URL}/api/menu/${id}/toggle-availability`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -474,7 +474,7 @@ export default function CashierMode() {
   const submitVoidAudit = async () => {
     const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/orders/audit-void`, {
+      await fetch(`${API_URL}/api/orders/audit-void`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ reason: voidReasonModal.reason, cartTotal: total, items: cart })

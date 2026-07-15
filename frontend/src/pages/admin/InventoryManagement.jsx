@@ -37,12 +37,12 @@ export default function InventoryManagement() {
       .then(setMenuItems)
       .catch(console.error);
 
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/inventory`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setIngredients)
       .catch(console.error);
 
-    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory/history`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/inventory/history`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : Promise.reject(new Error(res.statusText)))
       .then(setHistoryData)
       .catch(console.error);
@@ -97,7 +97,7 @@ export default function InventoryManagement() {
     if (newStock < 0) return alert("Stock cannot be negative.");
 
     const isRaw = activeTab === 'raw';
-    const endpoint = isRaw ? `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/inventory/${currentItem._id}` : `${import.meta.env.VITE_API_URL || `${API_URL}`}/api/menu/${currentItem._id}`;
+    const endpoint = isRaw ? `${API_URL}/api/inventory/${currentItem._id}` : `${API_URL}/api/menu/${currentItem._id}`;
 
     try {
       const payload = isRaw ? {
@@ -165,7 +165,7 @@ export default function InventoryManagement() {
   const handleDeleteItem = async (item) => {
     if (!window.confirm(`Are you sure you want to delete ${item.name}?`)) return;
     const isRaw = activeTab === 'raw';
-    const endpoint = isRaw ? `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory/${item._id}` : `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${item._id}`;
+    const endpoint = isRaw ? `${API_URL}/api/inventory/${item._id}` : `${API_URL}/api/menu/${item._id}`;
     
     try {
       const res = await fetch(endpoint, {
@@ -232,7 +232,7 @@ export default function InventoryManagement() {
         }
 
         try {
-          const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/inventory/import`, {
+          const res = await fetch(`${API_URL}/api/inventory/import`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ items })
@@ -265,7 +265,7 @@ export default function InventoryManagement() {
     }
     
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/menu/${item._id}/recipe-costing${sizeQuery}`, {
+      const res = await fetch(`${API_URL}/api/menu/${item._id}/recipe-costing${sizeQuery}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {

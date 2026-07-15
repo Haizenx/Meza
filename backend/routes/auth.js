@@ -18,6 +18,15 @@ const authLimiter = rateLimit({
   message: { message: 'Too many attempts from this IP/Email combination, please try again after 15 minutes' }
 });
 
+const pinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 30, // 30 attempts per IP + ManagerID
+  keyGenerator: (req) => {
+    return req.ip + '_' + (req.body.managerId || 'unknown');
+  },
+  message: { message: 'Too many PIN attempts, please try again after 15 minutes' }
+});
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -146,8 +155,8 @@ router.get('/managers', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/auth/verify-pin (Rate limited to 10 attempts per 15 mins)
-router.post('/verify-pin', authenticate, authLimiter, [
+// POST /api/auth/verify-pin (Rate limited by pinLimiter)
+router.post('/verify-pin', authenticate, pinLimiter, [
   body('managerId').notEmpty().withMessage('Manager ID is required'),
   body('pin').isString().isLength({ min: 4, max: 6 }).withMessage('PIN must be 4-6 digits'),
   validate
