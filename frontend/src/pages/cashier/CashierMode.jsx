@@ -970,13 +970,11 @@ export default function CashierMode() {
 
                     {/* Image Area */}
                     <div className="h-32 bg-[var(--color-meza-bg)] relative overflow-hidden shrink-0">
-                      {item.photoUrl ? (
-                        <img src={item.photoUrl} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-[var(--color-meza-muted)]">
-                          {item.category === 'Drinks' ? <Coffee className="w-10 h-10" /> : item.category === 'Food' ? <UtensilsCrossed className="w-10 h-10" /> : <Croissant className="w-10 h-10" />}
-                        </div>
-                      )}
+                      <img 
+                        src={item.photoUrl || (item.category === 'Drinks' ? 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?q=80&w=600&auto=format&fit=crop' : item.category === 'Food' ? 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?q=80&w=600&auto=format&fit=crop' : 'https://images.unsplash.com/photo-1509365465985-25d11c17e812?q=80&w=600&auto=format&fit=crop')} 
+                        alt={item.name} 
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                      />
                       
                       {/* Beautiful Stock Indicators */}
                       {isSoldOut ? (

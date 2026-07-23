@@ -177,7 +177,7 @@ export default function KitchenDisplay() {
                   </span>
                 )}
                 {order.customerName && (
-                  <span className="bg-[var(--color-warning)]/20 text-[var(--color-warning)] border border-[var(--color-warning)]/30 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-widest">
+                  <span className="bg-orange-100 text-orange-800 border border-orange-300 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-widest">
                     {order.customerName}
                   </span>
                 )}
