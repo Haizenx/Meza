@@ -21,6 +21,8 @@ export default function CashierMode() {
   const [startingCashInput, setStartingCashInput] = useState('');
   const [actualCashInput, setActualCashInput] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [offlineOrders, setOfflineOrders] = useState([]);
+  const [isPendingSyncModalOpen, setIsPendingSyncModalOpen] = useState(false);
   const [socket, setSocket] = useState(null);
 
   // POS State
@@ -156,6 +158,27 @@ export default function CashierMode() {
     } catch (e) { console.error("Analytics fetch error", e); }
   };
 
+  const executeEndShift = async () => {
+    if (!isOnline) {
+      showToast("Cannot end shift while offline. Please connect to the internet first.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(`${API_URL}/api/shifts/current`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const shift = await res.json();
+      if (shift && shift._id) {
+        localStorage.setItem('meza_cached_shift', JSON.stringify(shift));
+        await fetch(`${API_URL}/api/shifts/end`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ actualCash: parseFloat(actualCashInput) })
+        });
+        logout();
+        navigate('/login');
+      }
+    } catch (err) { alert('Error closing shift'); }
+  };
+
   const fetchShift = async () => {
     try {
       const res = await fetch(`${API_URL}/api/shifts/current`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -171,8 +194,6 @@ export default function CashierMode() {
       console.error("Shift fetch error, falling back to cache", e); 
       const cached = localStorage.getItem('meza_cached_shift');
       if (cached) setCurrentShift(JSON.parse(cached));
-      // If offline and no cache, we just leave currentShift as null, 
-      // but they can't checkout anyway without a shift.
     }
   };
 
@@ -243,7 +264,6 @@ export default function CashierMode() {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ fulfillmentStatus: newStatus })
       });
-      // Optimistic UI handled by socket
     } catch (e) { console.error(e); }
   };
 
@@ -255,6 +275,7 @@ export default function CashierMode() {
     const failed = orders.filter(o => o.syncStatus === 'failed');
     setPendingOrdersCount(pending.length);
     setFailedOrdersCount(failed.length);
+    setOfflineOrders(orders);
   };
 
   const saveOrderOffline = async (orderPayload) => {
@@ -266,11 +287,10 @@ export default function CashierMode() {
   const flushPendingOrders = async () => {
     if (!navigator.onLine) return;
 
-    // Check real connectivity
     try {
       await fetch(`${API_URL}/api/menu`, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } });
     } catch (e) {
-      return; // Truly offline
+      return;
     }
 
     const orders = await getPendingOrders();
@@ -292,7 +312,6 @@ export default function CashierMode() {
           showToast(`Order failed to sync: ${errorText}`, 'error');
           
           if (res.status >= 400 && res.status < 500) {
-            // Unrecoverable (e.g. price drift or validation error)
             order.syncStatus = 'failed';
             await savePendingOrder(order);
           } else {
@@ -323,10 +342,8 @@ export default function CashierMode() {
 
   // --- PRINT LOGIC ---
   const printReceipt = (order) => {
-    // Add full cart to order for correct pricing logic in printer
     const printableOrder = { ...order, total: total, cart: cart };
     setPrintOrder(printableOrder);
-    // Wait for state to render, then trigger print
     setTimeout(() => {
       window.print();
     }, 100);
@@ -344,7 +361,7 @@ export default function CashierMode() {
   const holdCurrentOrder = () => {
     if (cart.length === 0) return;
     const tabName = window.prompt('Enter a name for this tab:');
-    if (tabName === null) return; // User cancelled
+    if (tabName === null) return;
     setHeldOrders(prev => [...prev, { id: Date.now(), name: tabName || 'Guest', cart, discountAmount, time: new Date() }]);
     setCart([]);
     setDiscountAmount(0);
@@ -364,7 +381,6 @@ export default function CashierMode() {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      // socket broadcast menu:updated will trigger fetchMenu()
     } catch (e) {
       console.error(e);
       showToast('Failed to update availability', 'error');
@@ -403,10 +419,8 @@ export default function CashierMode() {
       return;
     }
 
-    // Generate idempotency key instantly
     const localUUID = crypto.randomUUID();
 
-    // Note: total is computed strictly server-side. We send it just for fallback/reference if needed, but backend ignores it.
     const orderPayload = {
       localUUID,
       shiftId: currentShift?._id,
@@ -421,18 +435,14 @@ export default function CashierMode() {
 
     const printableOrder = { ...orderPayload, total, cart };
 
-    // 1. Save to Offline DB immediately
     await saveOrderOffline(orderPayload);
 
-    // 2. Clear Cart & Close Modal
     setCart([]);
     setIsCheckingOut(false);
     setCashTendered('');
 
-    // 3. Attempt Sync immediately
     flushPendingOrders();
 
-    // 4. Show success modal
     setCheckoutSuccessModal(printableOrder);
   };
 
@@ -452,9 +462,7 @@ export default function CashierMode() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        // PIN Approved
         if (pinModal.action === 'void') {
-          // Instead of clearing instantly, prompt for reason
           setVoidReasonModal({ isOpen: true, reason: 'Customer Changed Mind' });
         } else if (pinModal.action === 'discount') {
           setDiscountAmount(pinModal.payload);
@@ -502,14 +510,12 @@ export default function CashierMode() {
   const addToCart = (item, modifiers = [], e = null) => {
     if (!item.isAvailable || item.calculatedStock === 0) return;
 
-    // Cart items are uniquely identified by item ID + sorted modifiers
     const modifiersHash = modifiers.map(m => m.name).sort().join(',');
     const cartItemId = `${item._id}_${modifiersHash}`;
 
     const existing = cart.find(c => c.cartItemId === cartItemId);
     const totalItemQty = cart.filter(c => c._id === item._id).reduce((sum, c) => sum + c.quantity, 0);
 
-    // Smart Stock Validation
     if (item.calculatedStock !== null && item.calculatedStock !== undefined && totalItemQty >= item.calculatedStock) {
       showToast(`Cannot add more. Only ${item.calculatedStock} in stock!`, 'warning');
       return;
@@ -537,7 +543,6 @@ export default function CashierMode() {
       if (item.cartItemId === cartItemId) {
         const newQ = item.quantity + delta;
         
-        // Smart Stock Validation for + button
         if (delta > 0 && item.calculatedStock !== null && item.calculatedStock !== undefined) {
           const totalItemQty = cart.filter(c => c._id === item._id).reduce((sum, c) => sum + c.quantity, 0);
           if (totalItemQty >= item.calculatedStock) {
@@ -572,19 +577,6 @@ export default function CashierMode() {
         alert('Failed to start shift');
       }
     } catch (err) { alert('Error starting shift'); }
-  };
-
-  const handleEndShift = async (e) => {
-    e.preventDefault();
-    try {
-      await fetch(`${API_URL}/api/shifts/end`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ actualCash: parseFloat(actualCashInput) })
-      });
-      logout();
-      navigate('/login');
-    } catch (err) { alert('Error closing shift'); }
   };
 
   // --- RENDER HELPERS ---
@@ -639,18 +631,109 @@ export default function CashierMode() {
           </div>
         )}
 
-        {isEndingShift && (
-          <div className="absolute inset-0 bg-meza-text/60 backdrop-blur-sm z-[100] flex items-center justify-center">
-            <form onSubmit={handleEndShift} className="bg-[var(--color-meza-surface)] p-8 rounded-sm-sm w-full max-w-sm  border border-[var(--color-meza-border)]">
-              <div className="w-12 h-12 bg-[var(--color-danger)]/10 text-[var(--color-danger)] rounded-sm-full flex items-center justify-center mb-4"><SquareTerminal className="w-6 h-6" /></div>
-              <h2 className="text-2xl font-display font-bold text-[var(--color-meza-text)] mb-1">Close Register</h2>
-              <p className="text-sm text-[var(--color-meza-muted)] mb-6">Count actual cash in drawer.</p>
-              <input type="number" step="0.01" min="0" required value={actualCashInput} onChange={e => setActualCashInput(e.target.value)} className="w-full px-4 py-3 bg-[var(--color-meza-bg)] border border-[var(--color-meza-border)] rounded-sm-sm mb-6 font-bold" placeholder="₱0.00" />
-              <div className="flex space-x-3">
-                <button type="button" onClick={() => setIsEndingShift(false)} className="flex-1 py-3 text-[var(--color-meza-muted)] hover:bg-[var(--color-meza-bg)] rounded-sm-sm font-bold">Cancel</button>
-                <button type="submit" className="flex-1 py-3 bg-[var(--color-danger)] text-white rounded-sm-sm font-bold">End Shift</button>
+        {/* END SHIFT MODAL */}
+        {isEndingShift && currentShift && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-[var(--color-meza-surface)] w-full max-w-lg shadow-2xl p-6">
+              <h2 className="text-2xl font-display font-bold text-[var(--color-meza-text)] mb-4">End Shift Review</h2>
+              <div className="space-y-4 mb-6">
+                <div className="bg-[var(--color-meza-background)] p-4 rounded-sm flex justify-between items-center">
+                  <span className="text-[var(--color-meza-text-muted)] font-bold text-sm uppercase tracking-wider">Total Orders</span>
+                  <span className="text-xl font-bold text-[var(--color-meza-primary)]">{shiftAnalytics?.totalOrders || 0}</span>
+                </div>
+                <div className="bg-[var(--color-meza-background)] p-4 rounded-sm flex justify-between items-center">
+                  <span className="text-[var(--color-meza-text-muted)] font-bold text-sm uppercase tracking-wider">Cash Total</span>
+                  <span className="text-xl font-bold text-[var(--color-meza-text)]">₱{(shiftAnalytics?.cashTotal || 0).toFixed(2)}</span>
+                </div>
               </div>
-            </form>
+              
+              {!isOnline && (pendingOrdersCount > 0 || failedOrdersCount > 0) && (
+                 <div className="bg-[var(--color-danger)]/10 text-[var(--color-danger)] p-4 rounded-sm mb-6 text-sm font-bold flex items-center gap-2">
+                   <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                   <span>You cannot end your shift while offline with pending orders. Please connect to the internet to sync {pendingOrdersCount + failedOrdersCount} orders.</span>
+                 </div>
+              )}
+
+              <div className="flex gap-4">
+                <button onClick={() => setIsEndingShift(false)} className="flex-1 py-4 border border-[var(--color-meza-border)] text-[var(--color-meza-text)] font-bold uppercase tracking-widest hover:bg-[var(--color-meza-background)] transition-colors">Cancel</button>
+                <button 
+                  onClick={executeEndShift} 
+                  disabled={!isOnline && (pendingOrdersCount > 0 || failedOrdersCount > 0)}
+                  className="flex-1 py-4 bg-[var(--color-danger)] text-white font-bold uppercase tracking-widest hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    Confirm End Shift
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PENDING SYNC MODAL */}
+        {isPendingSyncModalOpen && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-[var(--color-meza-surface)] w-full max-w-2xl shadow-2xl p-6 flex flex-col max-h-[80vh]">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-display font-bold text-[var(--color-meza-text)]">Offline Queue</h2>
+                <button onClick={() => setIsPendingSyncModalOpen(false)} className="text-[var(--color-meza-text-muted)] hover:text-[var(--color-meza-text)]">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto mb-6 space-y-3 pr-2">
+                {offlineOrders.length === 0 ? (
+                  <div className="text-center py-10 text-[var(--color-meza-text-muted)] flex flex-col items-center">
+                    <CheckCircle2 className="w-12 h-12 mb-2 text-green-500 opacity-50" />
+                    <span className="font-bold">All orders are synced!</span>
+                  </div>
+                ) : (
+                  offlineOrders.map(order => (
+                    <div key={order.localUUID} className="bg-[var(--color-meza-background)] p-4 rounded-sm border border-[var(--color-meza-border)] flex justify-between items-center">
+                      <div>
+                        <div className="font-bold text-[var(--color-meza-text)]">Order #{order.localUUID.split('-')[0].toUpperCase()}</div>
+                        <div className="text-xs text-[var(--color-meza-text-muted)] mt-1">
+                          {order.items.length} items • ₱{(order.clientCalculatedTotal || 0).toFixed(2)} • {format(new Date(order.createdAtLocal), 'h:mm a')}
+                        </div>
+                        {order.syncStatus === 'failed' && (
+                          <div className="text-xs text-[var(--color-danger)] font-bold mt-1 max-w-sm truncate">
+                            Error: {order.syncError || 'Rejected by server'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {order.syncStatus === 'failed' ? (
+                          <span className="px-2 py-1 bg-[var(--color-danger)]/10 text-[var(--color-danger)] text-[10px] font-bold uppercase rounded-sm">Failed</span>
+                        ) : (
+                          <span className="px-2 py-1 bg-[var(--color-warning)] text-white text-[10px] font-bold uppercase rounded-sm">Pending</span>
+                        )}
+                        {order.retryCount > 0 && <span className="text-[10px] text-[var(--color-meza-text-muted)]">Retries: {order.retryCount}/5</span>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex gap-4 mt-auto">
+                {failedOrdersCount > 0 && (
+                  <button 
+                    onClick={() => {
+                      clearFailedOrders();
+                      setIsPendingSyncModalOpen(false);
+                    }} 
+                    className="px-6 py-3 border border-[var(--color-danger)] text-[var(--color-danger)] font-bold uppercase tracking-widest hover:bg-[var(--color-danger)]/10 transition-colors text-sm"
+                  >
+                    Discard Failed
+                  </button>
+                )}
+                <div className="flex-1"></div>
+                <button 
+                  onClick={flushPendingOrders} 
+                  disabled={!isOnline || offlineOrders.length === 0}
+                  className="px-6 py-3 bg-[var(--color-meza-primary)] text-white font-bold uppercase tracking-widest hover:bg-[var(--color-meza-primary)]/90 transition-colors disabled:opacity-50 text-sm flex items-center gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isOnline && offlineOrders.length > 0 ? 'animate-spin' : ''}`} />
+                  Force Sync All
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -819,35 +902,41 @@ export default function CashierMode() {
               </div>
             </div>
 
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsPendingSyncModalOpen(true)}
+                className={`flex items-center gap-2 px-3 py-1 rounded-sm text-xs font-bold transition-colors ${
+                  !isOnline || failedOrdersCount > 0 || pendingOrdersCount > 0 
+                    ? 'bg-[var(--color-danger)]/10 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/20' 
+                    : 'bg-green-500/10 text-green-600 hover:bg-green-500/20'
+                }`}
+              >
+                {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+                <span>
+                  {!isOnline ? 'OFFLINE' : 'ONLINE'}
+                </span>
+                {(pendingOrdersCount > 0 || failedOrdersCount > 0) && (
+                  <span className="ml-2 bg-[var(--color-danger)] text-white px-2 py-0.5 rounded-sm">
+                    {pendingOrdersCount + failedOrdersCount} Pending Syncs
+                  </span>
+                )}
+              </button>
+            </div>
+
             <div className="flex items-center space-x-4 shrink-0">
-              {/* Network / Sync Status */}
-              <div 
-                onClick={failedOrdersCount > 0 ? clearFailedOrders : undefined}
-                className={`flex items-center space-x-2 px-3 py-1 border rounded-sm-sm ${failedOrdersCount > 0 ? 'bg-[var(--color-danger)]/10 border-[var(--color-danger)]/30 cursor-pointer hover:bg-[var(--color-danger)]/20' : 'bg-[var(--color-meza-bg)] border-[var(--color-meza-border)]'}`}
-                title={failedOrdersCount > 0 ? 'Click to clear failed syncs' : 'Network Status'}
-              >
-                {isOnline ? <Wifi className={`w-4 h-4 ${failedOrdersCount > 0 ? 'text-[var(--color-danger)]' : 'text-green-500'}`} /> : <WifiOff className="w-4 h-4 text-[var(--color-danger)]" />}
-                <span className={`text-[10px] font-bold uppercase ${failedOrdersCount > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-meza-muted)]'}`}>
-                  {failedOrdersCount > 0 ? `${failedOrdersCount} Failed` : pendingOrdersCount > 0 ? `${pendingOrdersCount} Pending` : 'Synced'}
-                </span>
-              </div>
-
-              {/* Printer Status (Placeholder) */}
-              <div 
-                className="flex items-center space-x-2 px-3 py-1 border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 rounded-sm-sm cursor-help"
-                title="Printer is online and connected"
-              >
-                <div className="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"></div>
-                <span className="text-[10px] font-bold uppercase text-[var(--color-success)]">
-                  Printer Ready
-                </span>
-              </div>
-
               <button onClick={() => setIsEndingShift(true)} className="flex items-center space-x-1 px-3 py-1.5 rounded-sm-sm border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-danger)] text-[11px] font-bold uppercase"><SquareTerminal className="w-3.5 h-3.5" /><span>Close Register</span></button>
               <button onClick={() => setIsProfileOpen(true)} className="p-2 text-[var(--color-meza-muted)] hover:text-[var(--color-meza-muted)] rounded-sm-sm cursor-pointer transition-colors"><UserCog className="w-5 h-5" /></button>
               <button onClick={() => navigate('/login')} className="p-2 text-[var(--color-meza-muted)] hover:text-[var(--color-danger)] rounded-sm-sm cursor-pointer transition-colors"><LogOut className="w-5 h-5" /></button>
             </div>
           </header>
+
+          {/* OFFLINE BANNER */}
+          {!isOnline && (
+            <div className="bg-[var(--color-warning)] text-[var(--color-meza-surface)] px-6 py-2 text-sm font-bold flex items-center justify-center gap-2">
+              <WifiOff className="w-4 h-4" />
+              <span>Connection Lost. You are in Offline Mode. It is safe to continue taking orders; they will sync automatically when the internet returns.</span>
+            </div>
+          )}
 
           {/* Top Action Bar (Search + Categories) */}
           <div className="bg-[var(--color-meza-surface)] border-b border-[var(--color-meza-border)] p-4 flex flex-col sm:flex-row sm:items-center gap-4  z-10">

@@ -139,46 +139,23 @@ router.post('/purchase', authenticate, authorize('owner', 'manager'), validateZo
     });
     await po.save();
 
-    // Update Ingredient atomically using Aggregation Pipeline in Update (MongoDB 4.2+)
-    const updatedIngredient = await Ingredient.findOneAndUpdate(
-      { _id: ingredientId },
-      [{
-        $set: {
-          movingAverageCost: {
-            $divide: [
-              { $add: [
-                { $multiply: [
-                  { $ifNull: ["$stockQuantity", 0] },
-                  { $ifNull: ["$movingAverageCost", "$unitCost"] }
-                ]},
-                totalCostPaid
-              ]},
-              { $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived] }
-            ]
-          },
-          unitCost: {
-            $divide: [
-              { $add: [
-                { $multiply: [
-                  { $ifNull: ["$stockQuantity", 0] },
-                  { $ifNull: ["$movingAverageCost", "$unitCost"] }
-                ]},
-                totalCostPaid
-              ]},
-              { $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived] }
-            ]
-          },
-          stockQuantity: {
-            $add: [{ $ifNull: ["$stockQuantity", 0] }, quantityReceived]
-          }
-        }
-      }],
-      { new: true }
-    );
-
-    if (!updatedIngredient) {
+    const ingredient = await Ingredient.findById(ingredientId);
+    if (!ingredient) {
       return res.status(404).send('Ingredient not found');
     }
+
+    const oldQty = ingredient.stockQuantity || 0;
+    const oldCost = ingredient.movingAverageCost || ingredient.unitCost || 0;
+
+    const newTotalCost = (oldQty * oldCost) + totalCostPaid;
+    const newQty = oldQty + quantityReceived;
+    const newAverage = newTotalCost / newQty;
+
+    ingredient.movingAverageCost = newAverage;
+    ingredient.unitCost = newAverage;
+    ingredient.stockQuantity = newQty;
+
+    const updatedIngredient = await ingredient.save();
 
     if (req.io) {
       req.io.emit('inventory:updated');

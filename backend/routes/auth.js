@@ -9,7 +9,7 @@ const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const crypto = require('crypto');
 
-const authLimiter = rateLimit({
+const authLimiter = process.env.NODE_ENV === 'test' ? (req, res, next) => next() : rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
   max: 10, // 10 attempts per IP + Email
   keyGenerator: (req) => {
@@ -18,7 +18,7 @@ const authLimiter = rateLimit({
   message: { message: 'Too many attempts from this IP/Email combination, please try again after 15 minutes' }
 });
 
-const pinLimiter = rateLimit({
+const pinLimiter = process.env.NODE_ENV === 'test' ? (req, res, next) => next() : rateLimit({
   windowMs: 15 * 60 * 1000, // 15 mins
   max: 30, // 30 attempts per IP + ManagerID
   keyGenerator: (req) => {

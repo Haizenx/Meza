@@ -116,16 +116,18 @@ app.use((err, req, res, next) => {
   });
 });
 
-mongoose.connect(MONGO_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+if (require.main === module) {
+  mongoose.connect(MONGO_URI)
+    .then(() => {
+      console.log('Connected to MongoDB');
+      server.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+      });
+    })
+    .catch(err => {
+      console.error('MongoDB connection error:', err);
     });
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-  });
+}
 
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id} (User: ${socket.user.id})`);
@@ -164,3 +166,5 @@ publicIo.on('connection', (socket) => {
     console.log(`Public client disconnected: ${socket.id}`);
   });
 });
+
+module.exports = app;
